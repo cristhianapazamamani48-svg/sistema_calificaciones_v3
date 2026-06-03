@@ -3,7 +3,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 require('dotenv').config();
 
-const pool = require('./database');
+const { pool, initializeDatabase } = require('./database');
 
 const app = express();
 const AUTH_SECRET = process.env.AUTH_SECRET || 'cambia-este-secreto-en-produccion';
@@ -497,7 +497,25 @@ app.post('/api/students', async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Sistema de Calificaciones V3 corriendo en puerto ${PORT}`);
-});
+async function startServer() {
+    const maxAttempts = 20;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            await initializeDatabase();
+            const PORT = process.env.PORT || 3000;
+            app.listen(PORT, () => {
+                console.log(`Sistema de Calificaciones V3 corriendo en puerto ${PORT}`);
+            });
+            return;
+        } catch (error) {
+            console.error(`No se pudo inicializar la base de datos V3. Intento ${attempt}/${maxAttempts}:`, error.message);
+            if (attempt === maxAttempts) {
+                process.exit(1);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+    }
+}
+
+startServer();

@@ -304,11 +304,13 @@ async function initializeDatabase() {
         console.log('Base de datos V3 lista.');
     } catch (error) {
         console.error('Error inicializando base de datos V3:', error);
+        throw error;
     } finally {
         if (connection) connection.release();
     }
 }
 
-initializeDatabase();
-
-module.exports = pool;
+module.exports = {
+    pool,
+    initializeDatabase
+};
