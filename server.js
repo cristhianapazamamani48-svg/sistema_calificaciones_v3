@@ -429,6 +429,302 @@ app.get('/api/assignments', async (req, res) => {
     }
 });
 
+app.get('/api/terms', async (req, res) => {
+    let connection;
+    try {
+        const careerId = parseId(req.query.career_id);
+        connection = await pool.getConnection();
+
+        const params = [];
+        let where = '';
+        if (careerId) {
+            where = 'WHERE t.career_id = ?';
+            params.push(careerId);
+        }
+
+        const [rows] = await connection.query(`
+            SELECT t.*, c.name AS career_name
+            FROM terms t
+            JOIN careers c ON t.career_id = c.id
+            ${where}
+            ORDER BY c.name ASC, t.term_order ASC
+        `, params);
+
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.post('/api/terms', async (req, res) => {
+    let connection;
+    try {
+        const { career_id, name, percentage, term_order } = req.body;
+        const careerId = parseId(career_id);
+        const parsedPercentage = Number.parseFloat(percentage);
+
+        if (!careerId || !requiredText(name) || !Number.isFinite(parsedPercentage) || parsedPercentage <= 0) {
+            return res.status(400).json({ error: 'Carrera, nombre y porcentaje son obligatorios' });
+        }
+
+        connection = await pool.getConnection();
+        const [[total]] = await connection.query(
+            'SELECT COALESCE(SUM(percentage), 0) AS total FROM terms WHERE career_id = ?',
+            [careerId]
+        );
+
+        if (Number(total.total) + parsedPercentage > 100) {
+            return res.status(400).json({ error: 'La suma de parciales de la carrera no puede pasar de 100%' });
+        }
+
+        const [result] = await connection.query(
+            'INSERT INTO terms (career_id, name, percentage, term_order) VALUES (?, ?, ?, ?)',
+            [careerId, name.trim(), parsedPercentage, Number.parseInt(term_order, 10) || 1]
+        );
+
+        res.status(201).json({ id: result.insertId, message: 'Parcial creado' });
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe un parcial con ese nombre para la carrera' });
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.get('/api/categories', async (req, res) => {
+    let connection;
+    try {
+        const assignmentId = parseId(req.query.assignment_id);
+        const termId = parseId(req.query.term_id);
+        if (!assignmentId || !termId) {
+            return res.status(400).json({ error: 'Selecciona grupo-materia y parcial' });
+        }
+
+        connection = await pool.getConnection();
+        const [rows] = await connection.query(
+            'SELECT * FROM evaluation_categories WHERE assignment_id = ? AND term_id = ? ORDER BY name ASC',
+            [assignmentId, termId]
+        );
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.post('/api/categories', async (req, res) => {
+    let connection;
+    try {
+        const { assignment_id, term_id, name, weight_percentage } = req.body;
+        const assignmentId = parseId(assignment_id);
+        const termId = parseId(term_id);
+        const weight = Number.parseFloat(weight_percentage);
+
+        if (!assignmentId || !termId || !requiredText(name) || !Number.isFinite(weight) || weight <= 0) {
+            return res.status(400).json({ error: 'Grupo-materia, parcial, nombre y porcentaje son obligatorios' });
+        }
+
+        connection = await pool.getConnection();
+        const [[total]] = await connection.query(
+            'SELECT COALESCE(SUM(weight_percentage), 0) AS total FROM evaluation_categories WHERE assignment_id = ? AND term_id = ?',
+            [assignmentId, termId]
+        );
+
+        if (Number(total.total) + weight > 100) {
+            return res.status(400).json({ error: 'La suma de categorias del parcial no puede pasar de 100%' });
+        }
+
+        const [result] = await connection.query(
+            'INSERT INTO evaluation_categories (assignment_id, term_id, name, weight_percentage) VALUES (?, ?, ?, ?)',
+            [assignmentId, termId, name.trim(), weight]
+        );
+        res.status(201).json({ id: result.insertId, message: 'Categoria creada' });
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe una categoria con ese nombre' });
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.get('/api/evaluations', async (req, res) => {
+    let connection;
+    try {
+        const assignmentId = parseId(req.query.assignment_id);
+        const termId = parseId(req.query.term_id);
+        const categoryId = parseId(req.query.category_id);
+
+        connection = await pool.getConnection();
+        let where = 'WHERE 1 = 1';
+        const params = [];
+
+        if (categoryId) {
+            where += ' AND e.category_id = ?';
+            params.push(categoryId);
+        }
+        if (assignmentId) {
+            where += ' AND ec.assignment_id = ?';
+            params.push(assignmentId);
+        }
+        if (termId) {
+            where += ' AND ec.term_id = ?';
+            params.push(termId);
+        }
+
+        const [rows] = await connection.query(`
+            SELECT
+                e.*,
+                ec.name AS category_name,
+                ec.weight_percentage,
+                ec.term_id,
+                ec.assignment_id
+            FROM evaluations e
+            JOIN evaluation_categories ec ON e.category_id = ec.id
+            ${where}
+            ORDER BY ec.name ASC, e.name ASC
+        `, params);
+
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.post('/api/evaluations', async (req, res) => {
+    let connection;
+    try {
+        const { category_id, name } = req.body;
+        const categoryId = parseId(category_id);
+        if (!categoryId || !requiredText(name)) {
+            return res.status(400).json({ error: 'Categoria y nombre de evaluacion son obligatorios' });
+        }
+
+        connection = await pool.getConnection();
+        const [result] = await connection.query(
+            'INSERT INTO evaluations (category_id, name) VALUES (?, ?)',
+            [categoryId, name.trim()]
+        );
+
+        res.status(201).json({ id: result.insertId, message: 'Evaluacion creada' });
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe una evaluacion con ese nombre en la categoria' });
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.get('/api/gradebook', async (req, res) => {
+    let connection;
+    try {
+        const assignmentId = parseId(req.query.assignment_id);
+        const termId = parseId(req.query.term_id);
+        if (!assignmentId || !termId) {
+            return res.status(400).json({ error: 'Selecciona grupo-materia y parcial' });
+        }
+
+        connection = await pool.getConnection();
+        const [[context]] = await connection.query(`
+            SELECT
+                gsa.id AS assignment_id,
+                g.id AS group_id,
+                g.code AS group_code,
+                g.name AS group_name,
+                s.name AS subject_name,
+                s.passing_score,
+                c.name AS career_name,
+                ca.name AS campus_name,
+                t.name AS term_name,
+                t.percentage AS term_percentage
+            FROM group_subject_assignments gsa
+            JOIN academic_groups g ON gsa.group_id = g.id
+            JOIN subjects s ON gsa.subject_id = s.id
+            JOIN careers c ON g.career_id = c.id
+            JOIN campuses ca ON g.campus_id = ca.id
+            JOIN terms t ON t.career_id = c.id
+            WHERE gsa.id = ? AND t.id = ?
+            LIMIT 1
+        `, [assignmentId, termId]);
+
+        if (!context) return res.status(404).json({ error: 'Asignacion o parcial no encontrado' });
+
+        const [students] = await connection.query(`
+            SELECT s.id, CONCAT(s.first_name, ' ', s.last_name) AS full_name
+            FROM enrollments e
+            JOIN students s ON e.student_id = s.id
+            WHERE e.group_id = ? AND e.status = 'activo'
+            ORDER BY s.last_name ASC, s.first_name ASC
+        `, [context.group_id]);
+
+        const [evaluations] = await connection.query(`
+            SELECT
+                e.id AS evaluation_id,
+                e.name AS evaluation_name,
+                ec.id AS category_id,
+                ec.name AS category_name,
+                ec.weight_percentage
+            FROM evaluations e
+            JOIN evaluation_categories ec ON e.category_id = ec.id
+            WHERE ec.assignment_id = ? AND ec.term_id = ?
+            ORDER BY ec.name ASC, e.name ASC
+        `, [assignmentId, termId]);
+
+        const [grades] = await connection.query(`
+            SELECT g.student_id, g.evaluation_id, g.score
+            FROM grades g
+            JOIN evaluations e ON g.evaluation_id = e.id
+            JOIN evaluation_categories ec ON e.category_id = ec.id
+            WHERE ec.assignment_id = ? AND ec.term_id = ?
+        `, [assignmentId, termId]);
+
+        res.json({ context, students, evaluations, grades });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.post('/api/grades', async (req, res) => {
+    let connection;
+    try {
+        const { student_id, evaluation_id, score } = req.body;
+        const studentId = parseId(student_id);
+        const evaluationId = parseId(evaluation_id);
+        const parsedScore = Number.parseFloat(score);
+
+        if (!studentId || !evaluationId || !Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > 100) {
+            return res.status(400).json({ error: 'La nota debe estar entre 0 y 100' });
+        }
+
+        connection = await pool.getConnection();
+        await connection.query(`
+            INSERT INTO grades (student_id, evaluation_id, score)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE score = VALUES(score)
+        `, [studentId, evaluationId, parsedScore]);
+
+        res.json({ success: true, message: 'Nota guardada' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 app.get('/api/students', async (req, res) => {
     let connection;
     try {
