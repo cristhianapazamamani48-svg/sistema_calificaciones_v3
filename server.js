@@ -409,6 +409,7 @@ app.get('/api/assignments', async (req, res) => {
                 g.name AS group_name,
                 s.name AS subject_name,
                 s.passing_score,
+                c.id AS career_id,
                 c.name AS career_name,
                 ca.name AS campus_name
             FROM group_subject_assignments gsa

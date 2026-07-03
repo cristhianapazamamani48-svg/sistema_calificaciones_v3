@@ -240,9 +240,9 @@ function renderCurrentModule() {
     if (state.current === 'subjects') renderSubjects();
     if (state.current === 'groups') renderGroups();
     if (state.current === 'students') renderStudents();
-    if (state.current === 'evaluations') renderPlaceholder('Evaluaciones', 'Aqui configuraremos parciales por carrera y categorias/evaluaciones por grupo-materia.');
-    if (state.current === 'grades') renderPlaceholder('Calificaciones', 'Aqui ira la matriz dinamica de notas por carrera, grupo, materia, parcial, categorias y evaluaciones.');
-    if (state.current === 'reports') renderPlaceholder('Reportes', 'Aqui construiremos resumen general, detalle por parcial y kardex del estudiante.');
+    if (state.current === 'evaluations') renderEvaluations();
+    if (state.current === 'grades') renderGrades();
+    if (state.current === 'reports') renderReports();
 }
 
 function stat(label, value, note) {
@@ -609,24 +609,529 @@ async function submitStudent(event) {
     renderStudents();
 }
 
-function renderPlaceholder(title, description) {
+function assignmentOptions() {
+    return state.assignments.map((assignment) => `
+        <option value="${assignment.id}">
+            ${escapeHtml(assignment.group_code)} - ${escapeHtml(assignment.subject_name)}
+        </option>
+    `).join('');
+}
+
+function careerOptions() {
+    return state.careers.map((career) => `
+        <option value="${career.id}">${escapeHtml(career.name)}</option>
+    `).join('');
+}
+
+async function getTermsByCareer(careerId) {
+    if (!careerId) return [];
+    return requestJson(`/api/terms?career_id=${careerId}`);
+}
+
+async function renderEvaluations() {
     const content = document.getElementById('content');
     content.innerHTML = `
-        ${pageHeader(title, description, 'Proxima fase')}
+        ${pageHeader('Evaluaciones', 'Configura parciales, ponderaciones internas y evaluaciones por grupo-materia.', 'Operacion academica')}
+        <section class="grid two">
+            <article class="card">
+                <div class="card-header"><h3>Crear parcial de carrera</h3></div>
+                <div class="card-body">
+                    <form id="termForm" class="form-grid">
+                        <label>Carrera
+                            <select name="career_id" required>${careerOptions()}</select>
+                        </label>
+                        <label>Nombre del parcial <input name="name" placeholder="1er Parcial" required></label>
+                        <label>Valor oficial (%) <input name="percentage" type="number" min="0.01" max="100" step="0.01" value="25" required></label>
+                        <label>Orden <input name="term_order" type="number" min="1" value="1" required></label>
+                        <button class="button primary">Crear parcial</button>
+                    </form>
+                </div>
+            </article>
+            <article class="card">
+                <div class="card-header"><h3>Estructura de evaluacion</h3></div>
+                <div class="card-body">
+                    <div class="form-grid">
+                        <label>Grupo y materia
+                            <select id="evaluationAssignment">${assignmentOptions()}</select>
+                        </label>
+                        <label>Parcial
+                            <select id="evaluationTerm"></select>
+                        </label>
+                    </div>
+                </div>
+            </article>
+        </section>
+        <section class="grid two module-gap">
+            <article class="card">
+                <div class="card-header"><h3>Crear categoria</h3><span id="categoryTotal" class="badge info">0%</span></div>
+                <div class="card-body">
+                    <form id="categoryForm" class="form-grid">
+                        <label>Nombre <input name="name" placeholder="Practicas" required></label>
+                        <label>Ponderacion (%) <input name="weight_percentage" type="number" min="0.01" max="100" step="0.01" required></label>
+                        <button class="button primary">Crear categoria</button>
+                    </form>
+                    <div id="categoriesBox" class="list-panel"></div>
+                </div>
+            </article>
+            <article class="card">
+                <div class="card-header"><h3>Crear evaluacion</h3></div>
+                <div class="card-body">
+                    <form id="evaluationForm" class="form-grid">
+                        <label>Categoria
+                            <select name="category_id" id="categorySelect" required></select>
+                        </label>
+                        <label>Nombre <input name="name" placeholder="Practica 1" required></label>
+                        <button class="button primary">Crear evaluacion</button>
+                    </form>
+                    <div id="evaluationsBox" class="list-panel"></div>
+                </div>
+            </article>
+        </section>
+    `;
+
+    document.getElementById('termForm').addEventListener('submit', submitTerm);
+    document.getElementById('categoryForm').addEventListener('submit', submitCategory);
+    document.getElementById('evaluationForm').addEventListener('submit', submitEvaluation);
+    document.getElementById('evaluationAssignment').addEventListener('change', refreshEvaluationTerms);
+    document.getElementById('evaluationTerm').addEventListener('change', refreshEvaluationStructure);
+
+    await refreshEvaluationTerms();
+}
+
+async function refreshEvaluationTerms() {
+    const assignmentSelect = document.getElementById('evaluationAssignment');
+    const termSelect = document.getElementById('evaluationTerm');
+    const assignment = state.assignments.find((item) => String(item.id) === String(assignmentSelect.value));
+    const terms = await getTermsByCareer(assignment?.career_id);
+
+    termSelect.innerHTML = terms.map((term) => `
+        <option value="${term.id}">${escapeHtml(term.name)} (${term.percentage}%)</option>
+    `).join('');
+
+    await refreshEvaluationStructure();
+}
+
+async function refreshEvaluationStructure() {
+    const assignmentId = document.getElementById('evaluationAssignment')?.value;
+    const termId = document.getElementById('evaluationTerm')?.value;
+    const categoriesBox = document.getElementById('categoriesBox');
+    const evaluationsBox = document.getElementById('evaluationsBox');
+    const categorySelect = document.getElementById('categorySelect');
+    const categoryTotal = document.getElementById('categoryTotal');
+
+    if (!assignmentId || !termId) {
+        categoriesBox.innerHTML = '<div class="empty">Selecciona grupo-materia y parcial.</div>';
+        evaluationsBox.innerHTML = '<div class="empty">Sin evaluaciones.</div>';
+        categorySelect.innerHTML = '';
+        categoryTotal.textContent = '0%';
+        return;
+    }
+
+    const [categories, evaluations] = await Promise.all([
+        requestJson(`/api/categories?assignment_id=${assignmentId}&term_id=${termId}`),
+        requestJson(`/api/evaluations?assignment_id=${assignmentId}&term_id=${termId}`)
+    ]);
+
+    const total = categories.reduce((sum, category) => sum + Number(category.weight_percentage), 0);
+    categoryTotal.textContent = `${total.toFixed(2)}%`;
+    categoryTotal.className = `badge ${Math.abs(total - 100) < 0.001 ? 'ok' : 'warn'}`;
+
+    categorySelect.innerHTML = categories.map((category) => `
+        <option value="${category.id}">${escapeHtml(category.name)} (${category.weight_percentage}%)</option>
+    `).join('');
+
+    categoriesBox.innerHTML = categories.length ? `
+        <table>
+            <thead><tr><th>Categoria</th><th>Ponderacion</th></tr></thead>
+            <tbody>${categories.map((category) => `
+                <tr><td><strong>${escapeHtml(category.name)}</strong></td><td>${category.weight_percentage}%</td></tr>
+            `).join('')}</tbody>
+        </table>
+    ` : '<div class="empty">Todavia no hay categorias.</div>';
+
+    evaluationsBox.innerHTML = evaluations.length ? `
+        <table>
+            <thead><tr><th>Evaluacion</th><th>Categoria</th><th>Peso categoria</th></tr></thead>
+            <tbody>${evaluations.map((evaluation) => `
+                <tr>
+                    <td><strong>${escapeHtml(evaluation.name)}</strong></td>
+                    <td>${escapeHtml(evaluation.category_name)}</td>
+                    <td>${evaluation.weight_percentage}%</td>
+                </tr>
+            `).join('')}</tbody>
+        </table>
+    ` : '<div class="empty">Todavia no hay evaluaciones.</div>';
+}
+
+async function submitTerm(event) {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    await requestJson('/api/terms', { method: 'POST', body: JSON.stringify(data) });
+    toast('Parcial creado');
+    event.target.reset();
+    await refreshEvaluationTerms();
+}
+
+async function submitCategory(event) {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    data.assignment_id = document.getElementById('evaluationAssignment').value;
+    data.term_id = document.getElementById('evaluationTerm').value;
+    await requestJson('/api/categories', { method: 'POST', body: JSON.stringify(data) });
+    toast('Categoria creada');
+    event.target.reset();
+    await refreshEvaluationStructure();
+}
+
+async function submitEvaluation(event) {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    await requestJson('/api/evaluations', { method: 'POST', body: JSON.stringify(data) });
+    toast('Evaluacion creada');
+    event.target.reset();
+    await refreshEvaluationStructure();
+}
+
+async function renderGrades() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        ${pageHeader('Calificaciones', 'Registra notas de 0 a 100 y convierte automaticamente al valor oficial del parcial.', 'Operacion academica')}
         <article class="card">
-            <div class="card-header"><h3>Modulo preparado</h3></div>
+            <div class="card-header"><h3>Selector de notas</h3><button id="exportGrades" class="button secondary" type="button">Exportar CSV</button></div>
             <div class="card-body">
-                <p>La estructura V3 ya contempla las tablas necesarias para este modulo. En la siguiente fase conectaremos su interfaz y reglas especificas.</p>
-                <table>
-                    <tbody>
-                        <tr><td><strong>Evaluaciones</strong></td><td>Parciales por carrera, categorias por grupo-materia y evaluaciones por categoria.</td></tr>
-                        <tr><td><strong>Calificaciones</strong></td><td>Matriz dinamica, notas 0-100 y conversion al porcentaje del parcial.</td></tr>
-                        <tr><td><strong>Reportes</strong></td><td>Resumen general, detalle por parcial y kardex estudiante.</td></tr>
-                    </tbody>
-                </table>
+                <div class="form-row">
+                    <label>Grupo y materia
+                        <select id="gradeAssignment">${assignmentOptions()}</select>
+                    </label>
+                    <label>Parcial
+                        <select id="gradeTerm"></select>
+                    </label>
+                    <button id="loadGradebook" class="button primary" type="button">Cargar matriz</button>
+                </div>
             </div>
         </article>
+        <section id="gradebookBox" class="card module-gap">
+            <div class="empty">Selecciona grupo-materia y parcial para cargar calificaciones.</div>
+        </section>
     `;
+
+    document.getElementById('gradeAssignment').addEventListener('change', refreshGradeTerms);
+    document.getElementById('loadGradebook').addEventListener('click', loadGradebook);
+    document.getElementById('exportGrades').addEventListener('click', exportGradebookCsv);
+    await refreshGradeTerms();
+}
+
+async function refreshGradeTerms() {
+    const assignment = state.assignments.find((item) => String(item.id) === String(document.getElementById('gradeAssignment').value));
+    const terms = await getTermsByCareer(assignment?.career_id);
+    document.getElementById('gradeTerm').innerHTML = terms.map((term) => `
+        <option value="${term.id}">${escapeHtml(term.name)} (${term.percentage}%)</option>
+    `).join('');
+}
+
+async function loadGradebook() {
+    const assignmentId = document.getElementById('gradeAssignment').value;
+    const termId = document.getElementById('gradeTerm').value;
+    const box = document.getElementById('gradebookBox');
+
+    if (!assignmentId || !termId) {
+        box.innerHTML = '<div class="empty">Selecciona grupo-materia y parcial.</div>';
+        return;
+    }
+
+    const gradebook = await requestJson(`/api/gradebook?assignment_id=${assignmentId}&term_id=${termId}`);
+    window.currentGradebook = gradebook;
+    box.innerHTML = renderGradebookTable(gradebook);
+    document.querySelectorAll('[data-grade-input]').forEach((input) => {
+        input.addEventListener('change', saveGrade);
+        input.addEventListener('input', recalculateGradeRows);
+    });
+    recalculateGradeRows();
+}
+
+function renderGradebookTable(gradebook) {
+    const { context, students, evaluations, grades } = gradebook;
+    if (students.length === 0) return '<div class="empty">No hay estudiantes activos en este grupo.</div>';
+    if (evaluations.length === 0) return '<div class="empty">Este parcial no tiene evaluaciones configuradas.</div>';
+
+    const gradeMap = new Map(grades.map((grade) => [`${grade.student_id}_${grade.evaluation_id}`, grade.score]));
+    const grouped = {};
+    evaluations.forEach((evaluation) => {
+        if (!grouped[evaluation.category_id]) {
+            grouped[evaluation.category_id] = {
+                name: evaluation.category_name,
+                weight: evaluation.weight_percentage,
+                count: 0
+            };
+        }
+        grouped[evaluation.category_id].count += 1;
+    });
+
+    return `
+        <div class="card-header">
+            <h3>${escapeHtml(context.group_code)} - ${escapeHtml(context.subject_name)} / ${escapeHtml(context.term_name)}</h3>
+            <span class="badge info">Valor oficial ${context.term_percentage}%</span>
+        </div>
+        <div class="table-wrap">
+            <table class="gradebook-table">
+                <thead>
+                    <tr>
+                        <th rowspan="2">Estudiante</th>
+                        ${Object.values(grouped).map((category) => `<th colspan="${category.count}">${escapeHtml(category.name)} (${category.weight}%)</th>`).join('')}
+                        <th rowspan="2">Nota 100</th>
+                        <th rowspan="2">Nota oficial</th>
+                        <th rowspan="2">Estado</th>
+                    </tr>
+                    <tr>${evaluations.map((evaluation) => `<th>${escapeHtml(evaluation.evaluation_name)}</th>`).join('')}</tr>
+                </thead>
+                <tbody>
+                    ${students.map((student) => `
+                        <tr data-student-row="${student.id}">
+                            <td><strong>${escapeHtml(student.full_name)}</strong></td>
+                            ${evaluations.map((evaluation) => `
+                                <td>
+                                    <input class="grade-input" data-grade-input data-student="${student.id}" data-evaluation="${evaluation.evaluation_id}" type="number" min="0" max="100" step="0.01" value="${gradeMap.get(`${student.id}_${evaluation.evaluation_id}`) ?? ''}">
+                                </td>
+                            `).join('')}
+                            <td><strong data-internal="${student.id}">0.00</strong></td>
+                            <td><strong data-official="${student.id}">0.00</strong></td>
+                            <td><span data-result="${student.id}" class="badge warn">Pendiente</span></td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+async function saveGrade(event) {
+    const input = event.target;
+    const score = input.value === '' ? 0 : Number(input.value);
+    if (!Number.isFinite(score) || score < 0 || score > 100) {
+        toast('La nota debe estar entre 0 y 100');
+        input.focus();
+        return;
+    }
+
+    await requestJson('/api/grades', {
+        method: 'POST',
+        body: JSON.stringify({
+            student_id: input.dataset.student,
+            evaluation_id: input.dataset.evaluation,
+            score
+        })
+    });
+    input.classList.add('saved');
+    setTimeout(() => input.classList.remove('saved'), 900);
+    toast('Nota guardada');
+}
+
+function recalculateGradeRows() {
+    const gradebook = window.currentGradebook;
+    if (!gradebook) return [];
+
+    const categories = {};
+    gradebook.evaluations.forEach((evaluation) => {
+        if (!categories[evaluation.category_id]) {
+            categories[evaluation.category_id] = {
+                weight: Number(evaluation.weight_percentage),
+                evaluations: []
+            };
+        }
+        categories[evaluation.category_id].evaluations.push(evaluation);
+    });
+
+    return gradebook.students.map((student) => {
+        let internal = 0;
+        Object.values(categories).forEach((category) => {
+            const sum = category.evaluations.reduce((total, evaluation) => {
+                const input = document.querySelector(`[data-student="${student.id}"][data-evaluation="${evaluation.evaluation_id}"]`);
+                const score = Number(input?.value || 0);
+                return total + (Number.isFinite(score) ? score : 0);
+            }, 0);
+            internal += (sum / category.evaluations.length) * (category.weight / 100);
+        });
+
+        const official = internal * (Number(gradebook.context.term_percentage) / 100);
+        const required = Number(gradebook.context.passing_score) * (Number(gradebook.context.term_percentage) / 100);
+        const result = official >= required ? 'Aprobado' : 'En riesgo';
+
+        document.querySelector(`[data-internal="${student.id}"]`).textContent = internal.toFixed(2);
+        document.querySelector(`[data-official="${student.id}"]`).textContent = official.toFixed(2);
+        const resultElement = document.querySelector(`[data-result="${student.id}"]`);
+        resultElement.textContent = result;
+        resultElement.className = `badge ${result === 'Aprobado' ? 'ok' : 'warn'}`;
+
+        return { student: student.full_name, internal, official, result };
+    });
+}
+
+function exportGradebookCsv() {
+    const gradebook = window.currentGradebook;
+    if (!gradebook) {
+        toast('Primero carga una matriz de notas');
+        return;
+    }
+
+    const calculated = recalculateGradeRows();
+    const headers = ['Estudiante', ...gradebook.evaluations.map((evaluation) => `${evaluation.category_name} - ${evaluation.evaluation_name}`), 'Nota 100', 'Nota oficial', 'Estado'];
+    const rows = gradebook.students.map((student, index) => [
+        student.full_name,
+        ...gradebook.evaluations.map((evaluation) => {
+            const input = document.querySelector(`[data-student="${student.id}"][data-evaluation="${evaluation.evaluation_id}"]`);
+            return input?.value || '0';
+        }),
+        calculated[index].internal.toFixed(2),
+        calculated[index].official.toFixed(2),
+        calculated[index].result
+    ]);
+
+    downloadCsv(`calificaciones_${gradebook.context.group_code}_${gradebook.context.term_name}.csv`, [headers, ...rows]);
+}
+
+async function renderReports() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        ${pageHeader('Reportes', 'Genera resumen imprimible y archivo CSV desde las calificaciones registradas.', 'Reportes academicos')}
+        <article class="card">
+            <div class="card-header"><h3>Generador de reportes</h3><div class="actions"><button id="printReport" class="button secondary" type="button">Imprimir / PDF</button><button id="exportReport" class="button primary" type="button">Exportar CSV</button></div></div>
+            <div class="card-body">
+                <div class="form-row">
+                    <label>Grupo y materia
+                        <select id="reportAssignment">${assignmentOptions()}</select>
+                    </label>
+                    <label>Parcial
+                        <select id="reportTerm"></select>
+                    </label>
+                    <button id="loadReport" class="button primary" type="button">Generar</button>
+                </div>
+            </div>
+        </article>
+        <section id="reportBox" class="report-sheet module-gap">
+            <div class="empty">Selecciona grupo-materia y parcial para generar el reporte.</div>
+        </section>
+    `;
+
+    document.getElementById('reportAssignment').addEventListener('change', refreshReportTerms);
+    document.getElementById('loadReport').addEventListener('click', loadReport);
+    document.getElementById('printReport').addEventListener('click', () => window.print());
+    document.getElementById('exportReport').addEventListener('click', exportReportCsv);
+    await refreshReportTerms();
+}
+
+async function refreshReportTerms() {
+    const assignment = state.assignments.find((item) => String(item.id) === String(document.getElementById('reportAssignment').value));
+    const terms = await getTermsByCareer(assignment?.career_id);
+    document.getElementById('reportTerm').innerHTML = terms.map((term) => `
+        <option value="${term.id}">${escapeHtml(term.name)} (${term.percentage}%)</option>
+    `).join('');
+}
+
+async function loadReport() {
+    const assignmentId = document.getElementById('reportAssignment').value;
+    const termId = document.getElementById('reportTerm').value;
+    if (!assignmentId || !termId) {
+        document.getElementById('reportBox').innerHTML = '<div class="empty">Selecciona grupo-materia y parcial.</div>';
+        return;
+    }
+
+    const gradebook = await requestJson(`/api/gradebook?assignment_id=${assignmentId}&term_id=${termId}`);
+    window.currentReport = gradebook;
+    document.getElementById('reportBox').innerHTML = renderReportSheet(gradebook);
+}
+
+function renderReportSheet(gradebook) {
+    const rows = calculateReportRows(gradebook);
+    const approved = rows.filter((row) => row.result === 'Aprobado').length;
+    const risk = rows.length - approved;
+
+    return `
+        <div class="report-header">
+            <div>
+                <h2>Instituto Tecnologico Infocal</h2>
+                <p>Reporte de calificaciones por parcial</p>
+            </div>
+            <div class="report-meta">
+                <span>${new Date().toLocaleString()}</span>
+                <span>Nota minima: ${gradebook.context.passing_score}</span>
+            </div>
+        </div>
+        <div class="report-context">
+            <span><strong>Sede:</strong> ${escapeHtml(gradebook.context.campus_name)}</span>
+            <span><strong>Carrera:</strong> ${escapeHtml(gradebook.context.career_name)}</span>
+            <span><strong>Grupo:</strong> ${escapeHtml(gradebook.context.group_code)} - ${escapeHtml(gradebook.context.group_name)}</span>
+            <span><strong>Materia:</strong> ${escapeHtml(gradebook.context.subject_name)}</span>
+            <span><strong>Parcial:</strong> ${escapeHtml(gradebook.context.term_name)}</span>
+            <span><strong>Valor oficial:</strong> ${gradebook.context.term_percentage}%</span>
+        </div>
+        <div class="report-summary">
+            <div><strong>${rows.length}</strong><span>Estudiantes</span></div>
+            <div><strong>${approved}</strong><span>Aprobados</span></div>
+            <div><strong>${risk}</strong><span>En riesgo</span></div>
+        </div>
+        <table>
+            <thead><tr><th>Nro</th><th>Estudiante</th><th>Nota 100</th><th>Nota oficial</th><th>Estado</th></tr></thead>
+            <tbody>${rows.map((row, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td><strong>${escapeHtml(row.student)}</strong></td>
+                    <td>${row.internal.toFixed(2)}</td>
+                    <td>${row.official.toFixed(2)}</td>
+                    <td>${row.result}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="5">No hay estudiantes.</td></tr>'}</tbody>
+        </table>
+    `;
+}
+
+function calculateReportRows(gradebook) {
+    const gradeMap = new Map(gradebook.grades.map((grade) => [`${grade.student_id}_${grade.evaluation_id}`, Number(grade.score)]));
+    const categories = {};
+    gradebook.evaluations.forEach((evaluation) => {
+        if (!categories[evaluation.category_id]) {
+            categories[evaluation.category_id] = { weight: Number(evaluation.weight_percentage), evaluations: [] };
+        }
+        categories[evaluation.category_id].evaluations.push(evaluation);
+    });
+
+    return gradebook.students.map((student) => {
+        let internal = 0;
+        Object.values(categories).forEach((category) => {
+            const sum = category.evaluations.reduce((total, evaluation) => {
+                const score = gradeMap.get(`${student.id}_${evaluation.evaluation_id}`);
+                return total + (Number.isFinite(score) ? score : 0);
+            }, 0);
+            internal += (sum / category.evaluations.length) * (category.weight / 100);
+        });
+        const official = internal * (Number(gradebook.context.term_percentage) / 100);
+        const required = Number(gradebook.context.passing_score) * (Number(gradebook.context.term_percentage) / 100);
+        return { student: student.full_name, internal, official, result: official >= required ? 'Aprobado' : 'En riesgo' };
+    });
+}
+
+function exportReportCsv() {
+    const report = window.currentReport;
+    if (!report) {
+        toast('Primero genera un reporte');
+        return;
+    }
+
+    const rows = calculateReportRows(report);
+    downloadCsv(`reporte_${report.context.group_code}_${report.context.term_name}.csv`, [
+        ['Estudiante', 'Nota 100', 'Nota oficial', 'Estado'],
+        ...rows.map((row) => [row.student, row.internal.toFixed(2), row.official.toFixed(2), row.result])
+    ]);
+}
+
+function downloadCsv(filename, rows) {
+    const cleanName = filename.replace(/[\\/:*?"<>|]+/g, '_');
+    const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = cleanName;
+    link.click();
+    URL.revokeObjectURL(link.href);
 }
 
 async function bootstrap() {
