@@ -935,6 +935,22 @@ async function loadGradebook() {
         input.addEventListener('input', recalculateGradeRows);
     });
     recalculateGradeRows();
+
+    const searchInput = document.getElementById('gradebookSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase().trim();
+            const rows = document.querySelectorAll('[data-student-row]');
+            rows.forEach((row) => {
+                const studentName = row.querySelector('td:first-child').textContent.toLowerCase();
+                if (studentName.includes(term)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    }
 }
 
 function renderGradebookTable(gradebook) {
@@ -956,9 +972,12 @@ function renderGradebookTable(gradebook) {
     });
 
     return `
-        <div class="card-header">
-            <h3>${escapeHtml(context.group_code)} - ${escapeHtml(context.subject_name)} / ${escapeHtml(context.term_name)}</h3>
-            <span class="badge info">Valor oficial ${context.term_percentage}%</span>
+        <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+            <div>
+                <h3>${escapeHtml(context.group_code)} - ${escapeHtml(context.subject_name)} / ${escapeHtml(context.term_name)}</h3>
+                <span class="badge info">Valor oficial ${context.term_percentage}%</span>
+            </div>
+            <input type="text" id="gradebookSearch" placeholder="Buscar estudiante por nombre o apellido..." class="edit-input" style="max-width: 320px;">
         </div>
         <div class="table-wrap">
             <table class="gradebook-table">
