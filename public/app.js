@@ -658,6 +658,16 @@ async function renderEvaluations() {
                             <select id="evaluationTerm"></select>
                         </label>
                     </div>
+                    <div class="form-grid" style="margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border);">
+                        <div class="stat-label">Copiar estructura de otro grupo</div>
+                        <label>Grupo origen
+                            <select id="cloneSourceAssignment">${assignmentOptions()}</select>
+                        </label>
+                        <label>Parcial origen
+                            <select id="cloneSourceTerm"></select>
+                        </label>
+                        <button id="btnCloneCategories" class="button secondary" type="button">Copiar estructura</button>
+                    </div>
                 </div>
             </article>
         </section>
@@ -694,8 +704,11 @@ async function renderEvaluations() {
     document.getElementById('evaluationForm').addEventListener('submit', submitEvaluation);
     document.getElementById('evaluationAssignment').addEventListener('change', refreshEvaluationTerms);
     document.getElementById('evaluationTerm').addEventListener('change', refreshEvaluationStructure);
+    document.getElementById('cloneSourceAssignment').addEventListener('change', refreshCloneSourceTerms);
+    document.getElementById('btnCloneCategories').addEventListener('click', cloneCategoriesAction);
 
     await refreshEvaluationTerms();
+    await refreshCloneSourceTerms();
 }
 
 async function refreshEvaluationTerms() {
@@ -709,6 +722,64 @@ async function refreshEvaluationTerms() {
     `).join('');
 
     await refreshEvaluationStructure();
+}
+
+async function refreshCloneSourceTerms() {
+    const assignmentSelect = document.getElementById('cloneSourceAssignment');
+    const termSelect = document.getElementById('cloneSourceTerm');
+    const assignment = state.assignments.find((item) => String(item.id) === String(assignmentSelect.value));
+    const terms = await getTermsByCareer(assignment?.career_id);
+
+    termSelect.innerHTML = terms.map((term) => `
+        <option value="${term.id}">${escapeHtml(term.name)} (${term.percentage}%)</option>
+    `).join('');
+}
+
+async function cloneCategoriesAction() {
+    const srcAssignId = document.getElementById('cloneSourceAssignment').value;
+    const srcTermId = document.getElementById('cloneSourceTerm').value;
+    const tgtAssignId = document.getElementById('evaluationAssignment').value;
+    const tgtTermId = document.getElementById('evaluationTerm').value;
+
+    if (!srcAssignId || !srcTermId || !tgtAssignId || !tgtTermId) {
+        toast('Selecciona el origen y el destino');
+        return;
+    }
+
+    if (srcAssignId === tgtAssignId && srcTermId === tgtTermId) {
+        toast('El grupo origen y el destino no pueden ser iguales');
+        return;
+    }
+
+    const hasCategories = window.currentCategories && window.currentCategories.length > 0;
+    let confirmed = true;
+    if (hasCategories) {
+        confirmed = confirm(
+            '¡ATENCIÓN!: El grupo destino ya tiene categorías configuradas.\n\nSi copias la estructura, se ELIMINARÁN permanentemente todas las categorías, evaluaciones y notas registradas en este parcial para el grupo destino.\n\n¿Estás seguro de que deseas continuar?'
+        );
+    } else {
+        confirmed = confirm(
+            '¿Estás seguro de que deseas copiar las categorías y evaluaciones del grupo seleccionado?'
+        );
+    }
+
+    if (!confirmed) return;
+
+    try {
+        await requestJson('/api/categories/clone', {
+            method: 'POST',
+            body: JSON.stringify({
+                source_assignment_id: srcAssignId,
+                source_term_id: srcTermId,
+                target_assignment_id: tgtAssignId,
+                target_term_id: tgtTermId
+            })
+        });
+        toast('Estructura de evaluaciones copiada con éxito');
+        await refreshEvaluationStructure();
+    } catch (error) {
+        toast(error.message);
+    }
 }
 
 async function refreshEvaluationStructure() {

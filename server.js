@@ -620,6 +620,71 @@ app.delete('/api/categories/:id', async (req, res) => {
     }
 });
 
+app.post('/api/categories/clone', async (req, res) => {
+    let connection;
+    try {
+        const { source_assignment_id, source_term_id, target_assignment_id, target_term_id } = req.body;
+        const srcAssignId = parseId(source_assignment_id);
+        const srcTermId = parseId(source_term_id);
+        const tgtAssignId = parseId(target_assignment_id);
+        const tgtTermId = parseId(target_term_id);
+
+        if (!srcAssignId || !srcTermId || !tgtAssignId || !tgtTermId) {
+            return res.status(400).json({ error: 'Grupo origen, parcial origen, grupo destino y parcial destino son obligatorios' });
+        }
+        if (srcAssignId === tgtAssignId && srcTermId === tgtTermId) {
+            return res.status(400).json({ error: 'El origen y el destino no pueden ser iguales' });
+        }
+
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [srcCategories] = await connection.query(
+            'SELECT id, name, weight_percentage FROM evaluation_categories WHERE assignment_id = ? AND term_id = ?',
+            [srcAssignId, srcTermId]
+        );
+
+        if (srcCategories.length === 0) {
+            await connection.rollback();
+            return res.status(400).json({ error: 'El grupo origen seleccionado no tiene categorias para copiar' });
+        }
+
+        await connection.query(
+            'DELETE FROM evaluation_categories WHERE assignment_id = ? AND term_id = ?',
+            [tgtAssignId, tgtTermId]
+        );
+
+        for (const category of srcCategories) {
+            const [catResult] = await connection.query(
+                'INSERT INTO evaluation_categories (assignment_id, term_id, name, weight_percentage) VALUES (?, ?, ?, ?)',
+                [tgtAssignId, tgtTermId, category.name, category.weight_percentage]
+            );
+            const newCategoryId = catResult.insertId;
+
+            const [srcEvaluations] = await connection.query(
+                'SELECT name, status FROM evaluations WHERE category_id = ?',
+                [category.id]
+            );
+
+            for (const evaluation of srcEvaluations) {
+                await connection.query(
+                    'INSERT INTO evaluations (category_id, name, status) VALUES (?, ?, ?)',
+                    [newCategoryId, evaluation.name, evaluation.status]
+                );
+            }
+        }
+
+        await connection.commit();
+        res.json({ message: 'Estructura copiada con exito' });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 app.get('/api/evaluations', async (req, res) => {
     let connection;
     try {
