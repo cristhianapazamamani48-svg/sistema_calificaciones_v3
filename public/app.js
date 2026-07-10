@@ -732,6 +732,8 @@ async function refreshEvaluationStructure() {
         requestJson(`/api/evaluations?assignment_id=${assignmentId}&term_id=${termId}`)
     ]);
 
+    window.currentCategories = categories;
+
     const total = categories.reduce((sum, category) => sum + Number(category.weight_percentage), 0);
     categoryTotal.textContent = `${total.toFixed(2)}%`;
     categoryTotal.className = `badge ${Math.abs(total - 100) < 0.001 ? 'ok' : 'warn'}`;
@@ -742,9 +744,22 @@ async function refreshEvaluationStructure() {
 
     categoriesBox.innerHTML = categories.length ? `
         <table>
-            <thead><tr><th>Categoria</th><th>Ponderacion</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>Categoria</th>
+                    <th>Ponderacion</th>
+                    <th style="text-align: right; width: 140px;">Acciones</th>
+                </tr>
+            </thead>
             <tbody>${categories.map((category) => `
-                <tr><td><strong>${escapeHtml(category.name)}</strong></td><td>${category.weight_percentage}%</td></tr>
+                <tr id="category-row-${category.id}">
+                    <td><strong>${escapeHtml(category.name)}</strong></td>
+                    <td>${category.weight_percentage}%</td>
+                    <td style="text-align: right; white-space: nowrap;">
+                        <button class="button secondary small" onclick="editCategoryInline(${category.id})">Editar</button>
+                        <button class="button danger small" onclick="deleteCategory(${category.id})">Eliminar</button>
+                    </td>
+                </tr>
             `).join('')}</tbody>
         </table>
     ` : '<div class="empty">Todavia no hay categorias.</div>';
@@ -762,6 +777,79 @@ async function refreshEvaluationStructure() {
         </table>
     ` : '<div class="empty">Todavia no hay evaluaciones.</div>';
 }
+
+window.editCategoryInline = function(id) {
+    const category = window.currentCategories.find(c => c.id === id);
+    if (!category) return;
+
+    const row = document.getElementById(`category-row-${id}`);
+    if (!row) return;
+
+    row.innerHTML = `
+        <td>
+            <input type="text" class="edit-input" id="edit-category-name-${id}" value="${escapeHtml(category.name)}" required>
+        </td>
+        <td>
+            <div style="display: flex; align-items: center; gap: 4px;">
+                <input type="number" class="edit-input" id="edit-category-weight-${id}" value="${category.weight_percentage}" min="0.01" max="100" step="0.01" style="width: 80px;" required>%
+            </div>
+        </td>
+        <td style="text-align: right; white-space: nowrap;">
+            <button class="button primary small" onclick="saveCategoryEdit(${id})">Guardar</button>
+            <button class="button secondary small" onclick="refreshEvaluationStructure()">Cancelar</button>
+        </td>
+    `;
+};
+
+window.saveCategoryEdit = async function(id) {
+    const nameInput = document.getElementById(`edit-category-name-${id}`);
+    const weightInput = document.getElementById(`edit-category-weight-${id}`);
+    
+    const name = nameInput.value.trim();
+    const weight_percentage = Number.parseFloat(weightInput.value);
+
+    if (!name) {
+        toast('El nombre de la categoría es obligatorio');
+        nameInput.focus();
+        return;
+    }
+    if (!Number.isFinite(weight_percentage) || weight_percentage <= 0 || weight_percentage > 100) {
+        toast('El porcentaje debe estar entre 0.01 y 100');
+        weightInput.focus();
+        return;
+    }
+
+    try {
+        await requestJson(`/api/categories/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name, weight_percentage })
+        });
+        toast('Categoría actualizada con éxito');
+        await refreshEvaluationStructure();
+    } catch (error) {
+        toast(error.message);
+    }
+};
+
+window.deleteCategory = async function(id) {
+    const category = window.currentCategories.find(c => c.id === id);
+    if (!category) return;
+
+    const confirmed = confirm(
+        `¿Estás seguro de que deseas eliminar la categoría "${category.name}"?\n\n¡ADVERTENCIA!: Esto eliminará permanentemente todas las evaluaciones y las notas de los estudiantes asociadas a esta categoría.`
+    );
+    if (!confirmed) return;
+
+    try {
+        await requestJson(`/api/categories/${id}`, {
+            method: 'DELETE'
+        });
+        toast('Categoría eliminada con éxito');
+        await refreshEvaluationStructure();
+    } catch (error) {
+        toast(error.message);
+    }
+};
 
 async function submitTerm(event) {
     event.preventDefault();

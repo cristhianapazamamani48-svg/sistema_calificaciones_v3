@@ -394,6 +394,22 @@ button {
     color: var(--primary);
 }
 
+.button.danger {
+    background: #fee2e2;
+    color: var(--danger);
+}
+
+.button.danger:hover {
+    background: #fecaca;
+}
+
+.button.small {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    border-radius: 6px;
+    font-weight: 700;
+}
+
 .actions {
     display: flex;
     flex-wrap: wrap;
@@ -403,6 +419,21 @@ button {
 .button.ghost {
     background: transparent;
     color: #cbd5e1;
+}
+
+.edit-input {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 0.85rem;
+    background: white;
+    color: var(--text);
+}
+
+.edit-input:focus {
+    outline: 2px solid rgba(37, 99, 235, 0.18);
+    border-color: var(--primary);
 }
 
 .table-wrap {

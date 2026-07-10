@@ -555,6 +555,71 @@ app.post('/api/categories', async (req, res) => {
     }
 });
 
+app.put('/api/categories/:id', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        const { name, weight_percentage } = req.body;
+        const weight = Number.parseFloat(weight_percentage);
+
+        if (!id || !requiredText(name) || !Number.isFinite(weight) || weight <= 0) {
+            return res.status(400).json({ error: 'ID, nombre y porcentaje valido son obligatorios' });
+        }
+
+        connection = await pool.getConnection();
+        const [[category]] = await connection.query(
+            'SELECT assignment_id, term_id FROM evaluation_categories WHERE id = ?',
+            [id]
+        );
+        if (!category) {
+            return res.status(404).json({ error: 'Categoria no encontrada' });
+        }
+
+        const [[total]] = await connection.query(
+            'SELECT COALESCE(SUM(weight_percentage), 0) AS total FROM evaluation_categories WHERE assignment_id = ? AND term_id = ? AND id != ?',
+            [category.assignment_id, category.term_id, id]
+        );
+
+        if (Number(total.total) + weight > 100) {
+            return res.status(400).json({ error: 'La suma de categorias del parcial no puede pasar de 100%' });
+        }
+
+        await connection.query(
+            'UPDATE evaluation_categories SET name = ?, weight_percentage = ? WHERE id = ?',
+            [name.trim(), weight, id]
+        );
+
+        res.json({ message: 'Categoria actualizada con exito' });
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe una categoria con ese nombre' });
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.delete('/api/categories/:id', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+
+        connection = await pool.getConnection();
+        const [result] = await connection.query('DELETE FROM evaluation_categories WHERE id = ?', [id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Categoria no encontrada' });
+        }
+
+        res.json({ message: 'Categoria eliminada con exito' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 app.get('/api/evaluations', async (req, res) => {
     let connection;
     try {
