@@ -1035,12 +1035,27 @@ window.saveStudentTransfer = async function(id) {
 
 
 
-function assignmentOptions() {
-    return state.assignments.map((assignment) => `
-        <option value="${assignment.id}">
-            ${escapeHtml(assignment.group_code)} - ${escapeHtml(assignment.subject_name)}
-        </option>
-    `).join('');
+function assignmentGroupOptions() {
+    const groups = [];
+    const seen = new Set();
+    for (const a of state.assignments) {
+        if (!seen.has(a.group_id)) {
+            seen.add(a.group_id);
+            groups.push(a);
+        }
+    }
+    return groups.map(g => `<option value="${g.group_id}">${escapeHtml(g.group_code)} - ${escapeHtml(g.career_name)} (${escapeHtml(g.campus_name)})</option>`).join('');
+}
+
+function updateSubjectOptions(groupSelectId, subjectSelectId) {
+    const groupId = document.getElementById(groupSelectId).value;
+    const subjectSelect = document.getElementById(subjectSelectId);
+    if (!groupId) {
+        subjectSelect.innerHTML = '<option value="">--</option>';
+        return;
+    }
+    const assignments = state.assignments.filter(a => String(a.group_id) === String(groupId));
+    subjectSelect.innerHTML = assignments.map(a => `<option value="${a.id}">${escapeHtml(a.subject_name)}</option>`).join('');
 }
 
 function careerOptions() {
@@ -1077,8 +1092,11 @@ async function renderEvaluations() {
                 <div class="card-header"><h3>Estructura de evaluacion</h3></div>
                 <div class="card-body">
                     <div class="form-grid">
-                        <label>Grupo y materia
-                            <select id="evaluationAssignment">${assignmentOptions()}</select>
+                        <label>Grupo
+                            <select id="evaluationGroup">${assignmentGroupOptions()}</select>
+                        </label>
+                        <label>Materia
+                            <select id="evaluationAssignment"></select>
                         </label>
                         <label>Parcial
                             <select id="evaluationTerm"></select>
@@ -1087,7 +1105,10 @@ async function renderEvaluations() {
                     <div class="form-grid" style="margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border);">
                         <div class="stat-label">Copiar estructura de otro grupo</div>
                         <label>Grupo origen
-                            <select id="cloneSourceAssignment">${assignmentOptions()}</select>
+                            <select id="cloneSourceGroup">${assignmentGroupOptions()}</select>
+                        </label>
+                        <label>Materia origen
+                            <select id="cloneSourceAssignment"></select>
                         </label>
                         <label>Parcial origen
                             <select id="cloneSourceTerm"></select>
@@ -1128,10 +1149,21 @@ async function renderEvaluations() {
     document.getElementById('termForm').addEventListener('submit', submitTerm);
     document.getElementById('categoryForm').addEventListener('submit', submitCategory);
     document.getElementById('evaluationForm').addEventListener('submit', submitEvaluation);
+    document.getElementById('evaluationGroup').addEventListener('change', () => {
+        updateSubjectOptions('evaluationGroup', 'evaluationAssignment');
+        refreshEvaluationTerms();
+    });
+    document.getElementById('cloneSourceGroup').addEventListener('change', () => {
+        updateSubjectOptions('cloneSourceGroup', 'cloneSourceAssignment');
+        refreshCloneSourceTerms();
+    });
     document.getElementById('evaluationAssignment').addEventListener('change', refreshEvaluationTerms);
     document.getElementById('evaluationTerm').addEventListener('change', refreshEvaluationStructure);
     document.getElementById('cloneSourceAssignment').addEventListener('change', refreshCloneSourceTerms);
     document.getElementById('btnCloneCategories').addEventListener('click', cloneCategoriesAction);
+
+    updateSubjectOptions('evaluationGroup', 'evaluationAssignment');
+    updateSubjectOptions('cloneSourceGroup', 'cloneSourceAssignment');
 
     await refreshEvaluationTerms();
     await refreshCloneSourceTerms();
@@ -1385,8 +1417,11 @@ async function renderGrades() {
             <div class="card-header"><h3>Selector de notas</h3><button id="exportGrades" class="button secondary" type="button">Exportar CSV</button></div>
             <div class="card-body">
                 <div class="form-row">
-                    <label>Grupo y materia
-                        <select id="gradeAssignment">${assignmentOptions()}</select>
+                    <label>Grupo
+                        <select id="gradeGroup">${assignmentGroupOptions()}</select>
+                    </label>
+                    <label>Materia
+                        <select id="gradeAssignment"></select>
                     </label>
                     <label>Parcial
                         <select id="gradeTerm"></select>
@@ -1400,9 +1435,15 @@ async function renderGrades() {
         </section>
     `;
 
+    document.getElementById('gradeGroup').addEventListener('change', () => {
+        updateSubjectOptions('gradeGroup', 'gradeAssignment');
+        refreshGradeTerms();
+    });
     document.getElementById('gradeAssignment').addEventListener('change', refreshGradeTerms);
     document.getElementById('loadGradebook').addEventListener('click', loadGradebook);
     document.getElementById('exportGrades').addEventListener('click', exportGradebookCsv);
+
+    updateSubjectOptions('gradeGroup', 'gradeAssignment');
     await refreshGradeTerms();
 }
 
@@ -1601,8 +1642,11 @@ async function renderReports() {
             <div class="card-header"><h3>Generador de reportes</h3><div class="actions"><button id="printReport" class="button secondary" type="button">Imprimir / PDF</button><button id="exportReport" class="button primary" type="button">Exportar CSV</button></div></div>
             <div class="card-body">
                 <div class="form-row">
-                    <label>Grupo y materia
-                        <select id="reportAssignment">${assignmentOptions()}</select>
+                    <label>Grupo
+                        <select id="reportGroup">${assignmentGroupOptions()}</select>
+                    </label>
+                    <label>Materia
+                        <select id="reportAssignment"></select>
                     </label>
                     <label>Parcial
                         <select id="reportTerm"></select>
@@ -1616,10 +1660,16 @@ async function renderReports() {
         </section>
     `;
 
+    document.getElementById('reportGroup').addEventListener('change', () => {
+        updateSubjectOptions('reportGroup', 'reportAssignment');
+        refreshReportTerms();
+    });
     document.getElementById('reportAssignment').addEventListener('change', refreshReportTerms);
     document.getElementById('loadReport').addEventListener('click', loadReport);
     document.getElementById('printReport').addEventListener('click', () => window.print());
     document.getElementById('exportReport').addEventListener('click', exportReportCsv);
+
+    updateSubjectOptions('reportGroup', 'reportAssignment');
     await refreshReportTerms();
 }
 
