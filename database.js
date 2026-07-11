@@ -152,12 +152,18 @@ async function initializeDatabase() {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 first_name VARCHAR(150) NOT NULL,
                 last_name VARCHAR(150) NOT NULL,
+                ci VARCHAR(20) NULL,
                 phone VARCHAR(50) NULL,
                 notes TEXT NULL,
                 status ENUM('activo', 'retirado', 'abandono', 'egresado', 'reprobo') NOT NULL DEFAULT 'activo',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
+        `);
+
+        // Migración segura: agrega ci si la tabla ya existía sin ese campo
+        await connection.query(`
+            ALTER TABLE students ADD COLUMN IF NOT EXISTS ci VARCHAR(20) NULL AFTER last_name
         `);
 
         await connection.query(`
@@ -301,7 +307,7 @@ async function initializeDatabase() {
             `, [careerId, name, index + 1, careerId, name]);
         }
 
-        console.log('Base de datos V3 lista.');
+        console.log('Base de datos V3 lista (con campo CI en students).');
     } catch (error) {
         console.error('Error inicializando base de datos V3:', error);
         throw error;

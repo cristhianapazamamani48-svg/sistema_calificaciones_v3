@@ -552,11 +552,18 @@ async function submitGroup(event) {
 
 // ── Estado de filtros y panel lateral de estudiantes ──────────────────────
 const studentState = {
-    filters: { campus_id: '', career_id: '', group_id: '', status: '', name: '' },
+    filters: { campus_id: '', career_id: '', group_id: '', status: '', search: '' },
     filtered: [],
     panelStudent: null,
     panelMode: null  // 'edit' | 'transfer' | 'status'
 };
+
+// Debounce para la búsqueda en tiempo real
+let studentSearchTimer = null;
+function debounceStudentSearch(fn, ms = 280) {
+    clearTimeout(studentSearchTimer);
+    studentSearchTimer = setTimeout(fn, ms);
+}
 
 function studentStatusBadge(status) {
     const map = {
@@ -570,16 +577,26 @@ function studentStatusBadge(status) {
     return `<span class="badge ${s.cls}">${s.label}</span>`;
 }
 
+function highlightMatch(text, query) {
+    if (!query || !text) return escapeHtml(text || '');
+    const escaped = escapeHtml(text);
+    const escapedQ = escapeHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return escaped.replace(new RegExp(`(${escapedQ})`, 'gi'), '<mark style="background:#fef08a;border-radius:2px">$1</mark>');
+}
+
 function applyStudentFilters() {
-    const { campus_id, career_id, group_id, status, name } = studentState.filters;
+    const { campus_id, career_id, group_id, status, search } = studentState.filters;
+    const q = search.trim().toLowerCase();
     studentState.filtered = state.students.filter(s => {
         if (campus_id && String(s.campus_id) !== String(campus_id)) return false;
         if (career_id && String(s.career_id) !== String(career_id)) return false;
         if (group_id  && String(s.group_id)  !== String(group_id))  return false;
         if (status    && s.status !== status)                        return false;
-        if (name) {
-            const q = name.toLowerCase();
-            if (!s.full_name.toLowerCase().includes(q)) return false;
+        if (q) {
+            const inName  = s.full_name.toLowerCase().includes(q);
+            const inCi    = (s.ci || '').toLowerCase().includes(q);
+            const inPhone = (s.phone || '').toLowerCase().includes(q);
+            if (!inName && !inCi && !inPhone) return false;
         }
         return true;
     });
@@ -594,10 +611,20 @@ async function renderStudents() {
     content.innerHTML = `
         ${pageHeader('Estudiantes', 'Gestiona la nómina de estudiantes: edita datos, cambia estado o transfiere entre grupos.', 'Operación académica')}
 
-        <!-- Barra de filtros -->
+        <!-- Barra de filtros y buscador -->
         <div class="filter-bar">
-            <label>Buscar por nombre
-                <input id="filterName" type="text" placeholder="Ej: García..." value="${escapeHtml(studentState.filters.name)}">
+            <label style="flex:2;min-width:220px">
+                <span style="display:flex;align-items:center;gap:6px">
+                    🔍 Buscar estudiante
+                    <span style="font-weight:400;color:var(--muted);font-size:0.72rem">(nombre, CI o celular)</span>
+                </span>
+                <div style="position:relative">
+                    <input id="filterSearch" type="text" placeholder="Ej: García, 1234567, 7xxxxxxx..."
+                        value="${escapeHtml(studentState.filters.search)}"
+                        style="padding-left:12px;padding-right:36px">
+                    <button id="btnClearSearch" type="button" title="Limpiar búsqueda"
+                        style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:none;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;display:${studentState.filters.search ? 'block' : 'none'}">✕</button>
+                </div>
             </label>
             <label>Sede
                 <select id="filterCampus">
@@ -628,7 +655,7 @@ async function renderStudents() {
                 </select>
             </label>
             <div class="filter-actions">
-                <button id="btnClearFilters" class="button secondary">Limpiar</button>
+                <button id="btnClearFilters" class="button secondary">Limpiar todo</button>
             </div>
         </div>
 
@@ -640,7 +667,10 @@ async function renderStudents() {
                     <form id="studentForm" class="form-grid">
                         <label>Nombre <input name="first_name" required></label>
                         <label>Apellido <input name="last_name" required></label>
-                        <label>Celular <input name="phone"></label>
+                        <label>CI / Carnet
+                            <input name="ci" placeholder="Ej: 1234567" maxlength="20">
+                        </label>
+                        <label>Celular <input name="phone" placeholder="Ej: 7xxxxxxx"></label>
                         <label>Grupo
                             <select name="group_id" required>
                                 ${activeGroups.map(g => `<option value="${g.id}">${escapeHtml(g.code)} — ${escapeHtml(g.name)}</option>`).join('')}
@@ -662,11 +692,23 @@ async function renderStudents() {
         </section>
     `;
 
-    // Eventos de filtros
-    document.getElementById('filterName').addEventListener('input', e => {
-        studentState.filters.name = e.target.value;
-        refreshStudentsTable();
+    // Buscador con debounce
+    const searchInput = document.getElementById('filterSearch');
+    const clearSearchBtn = document.getElementById('btnClearSearch');
+
+    searchInput.addEventListener('input', e => {
+        studentState.filters.search = e.target.value;
+        clearSearchBtn.style.display = e.target.value ? 'block' : 'none';
+        debounceStudentSearch(() => refreshStudentsTable());
     });
+    clearSearchBtn.addEventListener('click', () => {
+        studentState.filters.search = '';
+        searchInput.value = '';
+        clearSearchBtn.style.display = 'none';
+        refreshStudentsTable();
+        searchInput.focus();
+    });
+
     document.getElementById('filterCampus').addEventListener('change', e => {
         studentState.filters.campus_id = e.target.value;
         refreshStudentsTable();
@@ -684,7 +726,7 @@ async function renderStudents() {
         refreshStudentsTable();
     });
     document.getElementById('btnClearFilters').addEventListener('click', () => {
-        Object.assign(studentState.filters, { campus_id: '', career_id: '', group_id: '', status: '', name: '' });
+        Object.assign(studentState.filters, { campus_id: '', career_id: '', group_id: '', status: '', search: '' });
         renderStudents();
     });
 
@@ -700,13 +742,17 @@ function refreshStudentsTable() {
 }
 
 function renderStudentsTable() {
+    const q = studentState.filters.search.trim();
     if (studentState.filtered.length === 0) {
-        return '<div class="empty">No hay estudiantes que coincidan con los filtros aplicados.</div>';
+        return q
+            ? `<div class="empty">Sin resultados para <strong>"${escapeHtml(q)}"</strong>. Intenta con otro nombre, CI o celular.</div>`
+            : '<div class="empty">No hay estudiantes que coincidan con los filtros aplicados.</div>';
     }
     return `
         <table>
             <thead><tr>
                 <th>Estudiante</th>
+                <th>CI</th>
                 <th>Grupo / Sede</th>
                 <th>Carrera</th>
                 <th>Estado</th>
@@ -719,10 +765,15 @@ function renderStudentsTable() {
                             <div class="student-cell">
                                 <span class="student-avatar">${escapeHtml(student.first_name.charAt(0).toUpperCase())}</span>
                                 <div class="student-info">
-                                    <strong>${escapeHtml(student.full_name)}</strong>
-                                    <span>${escapeHtml(student.phone || 'Sin celular')}</span>
+                                    <strong>${highlightMatch(student.full_name, q)}</strong>
+                                    <span>${highlightMatch(student.phone || 'Sin celular', q)}</span>
                                 </div>
                             </div>
+                        </td>
+                        <td>
+                            ${student.ci
+                                ? `<span style="font-family:monospace;font-size:.85rem">${highlightMatch(student.ci, q)}</span>`
+                                : '<span class="stat-note">—</span>'}
                         </td>
                         <td>
                             ${student.group_code
@@ -794,11 +845,9 @@ window.openStudentEdit = function(id) {
             <button class="side-panel-close" onclick="closeSidePanel()">✕</button>
         </div>
         <div class="side-panel-body">
-            <div class="form-grid" style="margin-bottom:14px">
-                <p style="margin:0;color:var(--muted);font-size:.85rem">
-                    Modificando el perfil de <strong>${escapeHtml(student.full_name)}</strong>
-                </p>
-            </div>
+            <p style="margin:0 0 16px;color:var(--muted);font-size:.85rem">
+                Modificando el perfil de <strong>${escapeHtml(student.full_name)}</strong>
+            </p>
             <form id="editStudentForm" class="form-grid">
                 <label>Nombre
                     <input name="first_name" value="${escapeHtml(student.first_name)}" required>
@@ -806,8 +855,11 @@ window.openStudentEdit = function(id) {
                 <label>Apellido
                     <input name="last_name" value="${escapeHtml(student.last_name)}" required>
                 </label>
+                <label>CI / Carnet de Identidad
+                    <input name="ci" value="${escapeHtml(student.ci || '')}" placeholder="Ej: 1234567" maxlength="20">
+                </label>
                 <label>Celular
-                    <input name="phone" value="${escapeHtml(student.phone || '')}">
+                    <input name="phone" value="${escapeHtml(student.phone || '')}" placeholder="Ej: 7xxxxxxx">
                 </label>
                 <label>Observaciones
                     <textarea name="notes" rows="4">${escapeHtml(student.notes || '')}</textarea>

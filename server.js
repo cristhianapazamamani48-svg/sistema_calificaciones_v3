@@ -859,7 +859,7 @@ app.post('/api/grades', async (req, res) => {
 app.get('/api/students', async (req, res) => {
     let connection;
     try {
-        const { campus_id, career_id, group_id, status } = req.query;
+        const { campus_id, career_id, group_id, status, search } = req.query;
         const conditions = [];
         const params = [];
 
@@ -878,6 +878,12 @@ app.get('/api/students', async (req, res) => {
         if (status && status !== 'todos') {
             conditions.push('s.status = ?');
             params.push(status);
+        }
+        // Búsqueda general: nombre completo, CI o celular
+        if (search && search.trim()) {
+            const term = `%${search.trim()}%`;
+            conditions.push('(CONCAT(s.first_name, " ", s.last_name) LIKE ? OR s.ci LIKE ? OR s.phone LIKE ?)');
+            params.push(term, term, term);
         }
 
         const whereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
@@ -914,7 +920,7 @@ app.get('/api/students', async (req, res) => {
 app.post('/api/students', async (req, res) => {
     let connection;
     try {
-        const { first_name, last_name, phone, notes, group_id } = req.body;
+        const { first_name, last_name, ci, phone, notes, group_id } = req.body;
         const groupId = parseId(group_id);
         if (!requiredText(first_name) || !requiredText(last_name) || !groupId) {
             return res.status(400).json({ error: 'Nombre, apellido y grupo son obligatorios' });
@@ -933,8 +939,8 @@ app.post('/api/students', async (req, res) => {
         }
 
         const [student] = await connection.query(
-            'INSERT INTO students (first_name, last_name, phone, notes) VALUES (?, ?, ?, ?)',
-            [first_name.trim(), last_name.trim(), phone || null, notes || null]
+            'INSERT INTO students (first_name, last_name, ci, phone, notes) VALUES (?, ?, ?, ?, ?)',
+            [first_name.trim(), last_name.trim(), ci?.trim() || null, phone?.trim() || null, notes || null]
         );
 
         await connection.query(
@@ -957,7 +963,7 @@ app.put('/api/students/:id', async (req, res) => {
     let connection;
     try {
         const id = parseId(req.params.id);
-        const { first_name, last_name, phone, notes } = req.body;
+        const { first_name, last_name, ci, phone, notes } = req.body;
         if (!id) return res.status(400).json({ error: 'ID invalido' });
         if (!requiredText(first_name) || !requiredText(last_name)) {
             return res.status(400).json({ error: 'Nombre y apellido son obligatorios' });
@@ -965,8 +971,8 @@ app.put('/api/students/:id', async (req, res) => {
 
         connection = await pool.getConnection();
         const [result] = await connection.query(
-            'UPDATE students SET first_name = ?, last_name = ?, phone = ?, notes = ? WHERE id = ?',
-            [first_name.trim(), last_name.trim(), phone || null, notes || null, id]
+            'UPDATE students SET first_name = ?, last_name = ?, ci = ?, phone = ?, notes = ? WHERE id = ?',
+            [first_name.trim(), last_name.trim(), ci?.trim() || null, phone?.trim() || null, notes || null, id]
         );
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Estudiante no encontrado' });
         res.json({ message: 'Datos del estudiante actualizados' });
