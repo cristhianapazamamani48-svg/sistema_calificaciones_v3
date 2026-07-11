@@ -179,6 +179,30 @@ app.post('/api/campuses', async (req, res) => {
     }
 });
 
+app.put('/api/campuses/:id', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+        const { name, address, status } = req.body;
+        if (!requiredText(name)) return res.status(400).json({ error: 'El nombre de la sede es obligatorio' });
+
+        connection = await pool.getConnection();
+        const [result] = await connection.query(
+            'UPDATE campuses SET name = ?, address = ?, status = ? WHERE id = ?',
+            [name.trim(), address || null, status || 'activo', id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Sede no encontrada' });
+        res.json({ message: 'Sede actualizada' });
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'La sede ya existe' });
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 app.get('/api/careers', async (req, res) => {
     let connection;
     try {
@@ -250,6 +274,34 @@ app.post('/api/careers', async (req, res) => {
     }
 });
 
+app.put('/api/careers/:id', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+        const { name, code, faculty, academic_type, duration } = req.body;
+        if (!requiredText(name) || !requiredText(academic_type)) {
+            return res.status(400).json({ error: 'Nombre y tipo academico son obligatorios' });
+        }
+        if (!['anual', 'semestral', 'modular'].includes(academic_type)) {
+            return res.status(400).json({ error: 'Tipo academico invalido' });
+        }
+
+        connection = await pool.getConnection();
+        const [result] = await connection.query(
+            'UPDATE careers SET name = ?, code = ?, faculty = ?, academic_type = ?, duration = ? WHERE id = ?',
+            [name.trim(), code || null, faculty || null, academic_type, Number.parseInt(duration, 10) || 1, id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Carrera no encontrada' });
+        res.json({ message: 'Carrera actualizada' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 app.get('/api/subjects', async (req, res) => {
     let connection;
     try {
@@ -285,6 +337,33 @@ app.post('/api/subjects', async (req, res) => {
             [careerId, name.trim(), code || null, description || null, Number.parseFloat(passing_score) || 61, gradeNumber]
         );
         res.status(201).json({ id: result.insertId, message: 'Materia creada' });
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'La materia ya existe para ese grado' });
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.put('/api/subjects/:id', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+        const { name, code, description, passing_score, grade_number } = req.body;
+        const gradeNumber = parseId(grade_number);
+        if (!gradeNumber || !requiredText(name)) {
+            return res.status(400).json({ error: 'Grado y nombre de materia son obligatorios' });
+        }
+
+        connection = await pool.getConnection();
+        const [result] = await connection.query(
+            'UPDATE subjects SET name = ?, code = ?, description = ?, passing_score = ?, grade_number = ? WHERE id = ?',
+            [name.trim(), code || null, description || null, Number.parseFloat(passing_score) || 61, gradeNumber, id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Materia no encontrada' });
+        res.json({ message: 'Materia actualizada' });
     } catch (error) {
         console.error(error);
         if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'La materia ya existe para ese grado' });
@@ -384,6 +463,35 @@ app.post('/api/groups', async (req, res) => {
         if (connection) await connection.rollback();
         console.error(error);
         if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe un grupo con ese codigo' });
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.put('/api/groups/:id', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+        const { code, name, shift, class_modality } = req.body;
+
+        if (!requiredText(code) || !requiredText(name)) {
+            return res.status(400).json({ error: 'Codigo y nombre son obligatorios' });
+        }
+        if (!['maniana', 'tarde', 'noche'].includes(shift)) return res.status(400).json({ error: 'Turno invalido' });
+        if (!['presencial', 'virtual', 'semipresencial'].includes(class_modality)) return res.status(400).json({ error: 'Modalidad invalida' });
+
+        connection = await pool.getConnection();
+        const [result] = await connection.query(
+            'UPDATE academic_groups SET code = ?, name = ?, shift = ?, class_modality = ? WHERE id = ?',
+            [code.trim(), name.trim(), shift, class_modality, id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Grupo no encontrado' });
+        res.json({ message: 'Grupo actualizado' });
+    } catch (error) {
+        console.error(error);
+        if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'El codigo de grupo ya existe' });
         res.status(500).json({ error: error.message });
     } finally {
         if (connection) connection.release();
@@ -987,6 +1095,7 @@ app.put('/api/students/:id', async (req, res) => {
 app.delete('/api/students/:id', async (req, res) => {
     let connection;
     try {
+        if (req.user.role !== 'superadministrador') return res.status(403).json({ error: 'Solo el superadministrador puede eliminar estudiantes permanentemente' });
         const id = parseId(req.params.id);
         if (!id) return res.status(400).json({ error: 'ID invalido' });
 
@@ -1042,6 +1151,90 @@ app.put('/api/students/:id/status', async (req, res) => {
 
         await connection.commit();
         res.json({ message: `Estado del estudiante actualizado a "${status}"` });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// POST request deletion
+app.post('/api/students/:id/delete_request', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        const { reason } = req.body;
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+        if (!requiredText(reason)) return res.status(400).json({ error: 'La causa es obligatoria' });
+
+        connection = await pool.getConnection();
+        await connection.query(
+            'INSERT INTO student_deletion_requests (student_id, user_id, reason) VALUES (?, ?, ?)',
+            [id, req.user.id, reason.trim()]
+        );
+        res.status(201).json({ message: 'Solicitud de eliminacion enviada al administrador' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// GET list deletion requests
+app.get('/api/deletion_requests', async (req, res) => {
+    let connection;
+    try {
+        if (req.user.role !== 'superadministrador') return res.status(403).json({ error: 'Acceso denegado' });
+        connection = await pool.getConnection();
+        const [rows] = await connection.query(`
+            SELECT
+                r.*,
+                CONCAT(s.last_name, ' ', s.first_name) AS student_name, s.status AS student_status,
+                u.full_name AS requested_by
+            FROM student_deletion_requests r
+            JOIN students s ON r.student_id = s.id
+            JOIN users u ON r.user_id = u.id
+            ORDER BY r.status ASC, r.created_at DESC
+        `);
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// PUT resolve request
+app.put('/api/deletion_requests/:id/resolve', async (req, res) => {
+    let connection;
+    try {
+        if (req.user.role !== 'superadministrador') return res.status(403).json({ error: 'Acceso denegado' });
+        const id = parseId(req.params.id);
+        const { status } = req.body;
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+        if (!['aprobada', 'rechazada'].includes(status)) return res.status(400).json({ error: 'Estado invalido' });
+
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [[request]] = await connection.query('SELECT * FROM student_deletion_requests WHERE id = ?', [id]);
+        if (!request) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Solicitud no encontrada' });
+        }
+
+        await connection.query('UPDATE student_deletion_requests SET status = ? WHERE id = ?', [status, id]);
+
+        if (status === 'aprobada') {
+            await connection.query('DELETE FROM students WHERE id = ?', [request.student_id]);
+        }
+
+        await connection.commit();
+        res.json({ message: status === 'aprobada' ? 'Estudiante eliminado definitivamente' : 'Solicitud rechazada' });
     } catch (error) {
         if (connection) await connection.rollback();
         console.error(error);

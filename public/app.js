@@ -11,7 +11,8 @@ const modules = [
     { id: 'students', label: 'Estudiantes', icon: 'ES' },
     { id: 'evaluations', label: 'Evaluaciones', icon: 'EV' },
     { id: 'grades', label: 'Calificaciones', icon: 'NT' },
-    { id: 'reports', label: 'Reportes', icon: 'RP' }
+    { id: 'reports', label: 'Reportes', icon: 'RP' },
+    { id: 'solicitudes', label: 'Solicitudes', icon: 'SL', adminOnly: true }
 ];
 
 const state = {
@@ -69,12 +70,65 @@ async function requestJson(url, options) {
     return data;
 }
 
-function toast(message) {
+function toast(message, type = 'info') {
     const box = document.createElement('div');
-    box.className = 'toast';
+    box.className = `toast ${type}`;
     box.textContent = message;
     document.body.appendChild(box);
     setTimeout(() => box.remove(), 2800);
+}
+
+// ── Modal genérico de edición ─────────────────────────────────────────────
+function openEditModal({ title, fields, onSubmit }) {
+    document.getElementById('editModalOverlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'editModalOverlay';
+    overlay.className = 'modal-overlay';
+
+    const buildField = (f) => {
+        if (f.type === 'select') {
+            return `<label>${f.label}<select name="${f.name}">${f.options.map(o => `<option value="${o.value}"${String(o.value) === String(f.value) ? ' selected' : ''}>${o.label}</option>`).join('')}</select></label>`;
+        }
+        if (f.type === 'textarea') {
+            return `<label>${f.label}<textarea name="${f.name}" rows="3">${escapeHtml(f.value ?? '')}</textarea></label>`;
+        }
+        return `<label>${f.label}<input name="${f.name}" type="${f.type ?? 'text'}" value="${escapeHtml(String(f.value ?? ''))}"${f.required ? ' required' : ''}${f.min !== undefined ? ` min="${f.min}"` : ''}${f.max !== undefined ? ` max="${f.max}"` : ''}${f.step !== undefined ? ` step="${f.step}"` : ''}></label>`;
+    };
+
+    overlay.innerHTML = `
+        <div class="modal-box" role="dialog" aria-modal="true">
+            <div class="modal-header">
+                <h3>${title}</h3>
+                <button class="modal-close" id="editModalClose" type="button">&times;</button>
+            </div>
+            <form id="editModalForm" class="form-grid modal-body">
+                ${fields.map(buildField).join('')}
+                <div class="modal-actions">
+                    <button type="button" class="button secondary" id="editModalCancel">Cancelar</button>
+                    <button type="submit" class="button primary">Guardar cambios</button>
+                </div>
+            </form>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('editModalClose').addEventListener('click', close);
+    document.getElementById('editModalCancel').addEventListener('click', close);
+
+    document.getElementById('editModalForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target));
+        try {
+            await onSubmit(data);
+            close();
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    });
 }
 
 function logout() {
@@ -176,7 +230,9 @@ function renderShell() {
                     </div>
                     <div class="nav-section-title">Modulos</div>
                     <nav>
-                        ${modules.map((item) => `
+                        ${modules
+                            .filter(item => !item.adminOnly || state.user?.role === 'superadministrador')
+                            .map((item) => `
                             <button class="nav-button ${state.current === item.id ? 'active' : ''}" data-module="${item.id}">
                                 <span class="nav-icon">${item.icon}</span>
                                 <span>${item.label}</span>
@@ -243,6 +299,7 @@ function renderCurrentModule() {
     if (state.current === 'evaluations') renderEvaluations();
     if (state.current === 'grades') renderGrades();
     if (state.current === 'reports') renderReports();
+    if (state.current === 'solicitudes') renderSolicitudes();
 }
 
 function stat(label, value, note) {
@@ -322,19 +379,24 @@ function renderCampuses() {
         </section>
     `;
     document.getElementById('campusForm').addEventListener('submit', submitCampus);
+    document.querySelector('.table-wrap').addEventListener('click', e => {
+        const btn = e.target.closest('.btn-edit-campus');
+        if (btn) editCampus(Number(btn.dataset.id));
+    });
 }
 
 function renderCampusesTable() {
     if (state.campuses.length === 0) return '<div class="empty">No hay sedes registradas.</div>';
     return `
         <table>
-            <thead><tr><th>Sede</th><th>Direccion</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Sede</th><th>Direccion</th><th>Estado</th><th></th></tr></thead>
             <tbody>
                 ${state.campuses.map((campus) => `
                     <tr>
                         <td><strong>${escapeHtml(campus.name)}</strong></td>
                         <td>${escapeHtml(campus.address || 'Sin direccion')}</td>
                         <td><span class="badge ${campus.status === 'activo' ? 'ok' : 'warn'}">${escapeHtml(campus.status)}</span></td>
+                        <td><button class="button secondary btn-sm btn-edit-campus" data-id="${campus.id}">Editar</button></td>
                     </tr>
                 `).join('')}
             </tbody>
@@ -349,6 +411,25 @@ async function submitCampus(event) {
     toast('Sede creada');
     await loadAll();
     renderCampuses();
+}
+
+async function editCampus(id) {
+    const campus = state.campuses.find(c => c.id === id);
+    if (!campus) return;
+    openEditModal({
+        title: 'Editar Sede',
+        fields: [
+            { label: 'Nombre', name: 'name', type: 'text', value: campus.name, required: true },
+            { label: 'Direccion', name: 'address', type: 'text', value: campus.address || '' },
+            { label: 'Estado', name: 'status', type: 'select', value: campus.status, options: [{ value: 'activo', label: 'Activo' }, { value: 'inactivo', label: 'Inactivo' }] },
+        ],
+        onSubmit: async (data) => {
+            await requestJson(`/api/campuses/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+            toast('Sede actualizada');
+            await loadAll();
+            renderCampuses();
+        }
+    });
 }
 
 function renderCareers() {
@@ -390,13 +471,17 @@ function renderCareers() {
         </section>
     `;
     document.getElementById('careerForm').addEventListener('submit', submitCareer);
+    document.querySelector('#content .table-wrap').addEventListener('click', e => {
+        const btn = e.target.closest('.btn-edit-career');
+        if (btn) editCareer(Number(btn.dataset.id));
+    });
 }
 
 function renderCareersTable() {
     if (state.careers.length === 0) return '<div class="empty">No hay carreras registradas.</div>';
     return `
         <table>
-            <thead><tr><th>Carrera</th><th>Tipo</th><th>Duracion</th><th>Sedes</th></tr></thead>
+            <thead><tr><th>Carrera</th><th>Tipo</th><th>Duracion</th><th>Sedes</th><th></th></tr></thead>
             <tbody>
                 ${state.careers.map((career) => `
                     <tr>
@@ -404,6 +489,7 @@ function renderCareersTable() {
                         <td><span class="badge info">${escapeHtml(career.academic_type)}</span></td>
                         <td>${career.duration}</td>
                         <td>${career.campuses.map((campus) => escapeHtml(campus.name)).join(', ') || 'Sin sedes'}</td>
+                        <td><button class="button secondary btn-sm btn-edit-career" data-id="${career.id}">Editar</button></td>
                     </tr>
                 `).join('')}
             </tbody>
@@ -420,6 +506,27 @@ async function submitCareer(event) {
     toast('Carrera creada');
     await loadAll();
     renderCareers();
+}
+
+async function editCareer(id) {
+    const career = state.careers.find(c => c.id === id);
+    if (!career) return;
+    openEditModal({
+        title: 'Editar Carrera',
+        fields: [
+            { label: 'Nombre', name: 'name', type: 'text', value: career.name, required: true },
+            { label: 'Codigo', name: 'code', type: 'text', value: career.code || '' },
+            { label: 'Facultad', name: 'faculty', type: 'text', value: career.faculty || '' },
+            { label: 'Tipo academico', name: 'academic_type', type: 'select', value: career.academic_type, options: [{ value: 'anual', label: 'Anual' }, { value: 'semestral', label: 'Semestral' }, { value: 'modular', label: 'Modular' }] },
+            { label: 'Duracion', name: 'duration', type: 'number', value: career.duration, min: 1 },
+        ],
+        onSubmit: async (data) => {
+            await requestJson(`/api/careers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+            toast('Carrera actualizada');
+            await loadAll();
+            renderCareers();
+        }
+    });
 }
 
 function renderSubjects() {
@@ -452,13 +559,17 @@ function renderSubjects() {
         </section>
     `;
     document.getElementById('subjectForm').addEventListener('submit', submitSubject);
+    document.querySelector('#content .table-wrap').addEventListener('click', e => {
+        const btn = e.target.closest('.btn-edit-subject');
+        if (btn) editSubject(Number(btn.dataset.id));
+    });
 }
 
 function renderSubjectsTable() {
     if (state.subjects.length === 0) return '<div class="empty">No hay materias registradas.</div>';
     return `
         <table>
-            <thead><tr><th>Materia</th><th>Carrera</th><th>Grado</th><th>Aprobacion</th></tr></thead>
+            <thead><tr><th>Materia</th><th>Carrera</th><th>Grado</th><th>Aprobacion</th><th></th></tr></thead>
             <tbody>
                 ${state.subjects.map((subject) => `
                     <tr>
@@ -466,6 +577,7 @@ function renderSubjectsTable() {
                         <td>${escapeHtml(subject.career_name)}</td>
                         <td>${subject.grade_number}</td>
                         <td>${subject.passing_score}</td>
+                        <td><button class="button secondary btn-sm btn-edit-subject" data-id="${subject.id}">Editar</button></td>
                     </tr>
                 `).join('')}
             </tbody>
@@ -480,6 +592,27 @@ async function submitSubject(event) {
     toast('Materia creada');
     await loadAll();
     renderSubjects();
+}
+
+async function editSubject(id) {
+    const subject = state.subjects.find(s => s.id === id);
+    if (!subject) return;
+    openEditModal({
+        title: 'Editar Materia',
+        fields: [
+            { label: 'Nombre', name: 'name', type: 'text', value: subject.name, required: true },
+            { label: 'Codigo', name: 'code', type: 'text', value: subject.code || '' },
+            { label: 'Grado', name: 'grade_number', type: 'number', value: subject.grade_number, min: 1 },
+            { label: 'Nota de aprobacion', name: 'passing_score', type: 'number', value: subject.passing_score, min: 0, max: 100, step: 0.01 },
+            { label: 'Descripcion', name: 'description', type: 'textarea', value: subject.description || '' },
+        ],
+        onSubmit: async (data) => {
+            await requestJson(`/api/subjects/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+            toast('Materia actualizada');
+            await loadAll();
+            renderSubjects();
+        }
+    });
 }
 
 function renderGroups() {
@@ -520,13 +653,17 @@ function renderGroups() {
         </section>
     `;
     document.getElementById('groupForm').addEventListener('submit', submitGroup);
+    document.querySelector('#content .table-wrap').addEventListener('click', e => {
+        const btn = e.target.closest('.btn-edit-group');
+        if (btn) editGroup(Number(btn.dataset.id));
+    });
 }
 
 function renderGroupsTable(groups) {
     if (!groups || groups.length === 0) return '<div class="empty">No hay grupos registrados.</div>';
     return `
         <table>
-            <thead><tr><th>Grupo</th><th>Carrera / Sede</th><th>Grado</th><th>Materias</th></tr></thead>
+            <thead><tr><th>Grupo</th><th>Carrera / Sede</th><th>Grado</th><th>Materias</th><th></th></tr></thead>
             <tbody>
                 ${groups.map((group) => `
                     <tr>
@@ -534,6 +671,7 @@ function renderGroupsTable(groups) {
                         <td>${escapeHtml(group.career_name)}<br><span class="stat-note">${escapeHtml(group.campus_name)}</span></td>
                         <td>${group.grade_number} · ${escapeHtml(group.shift)} · ${escapeHtml(group.class_modality)}</td>
                         <td><span class="badge info">${group.subject_count || 0} heredadas</span></td>
+                        <td><button class="button secondary btn-sm btn-edit-group" data-id="${group.id}">Editar</button></td>
                     </tr>
                 `).join('')}
             </tbody>
@@ -548,6 +686,26 @@ async function submitGroup(event) {
     toast(`Grupo creado. Materias heredadas: ${result.inherited_subjects}`);
     await loadAll();
     renderGroups();
+}
+
+async function editGroup(id) {
+    const group = state.groups.find(g => g.id === id);
+    if (!group) return;
+    openEditModal({
+        title: 'Editar Grupo',
+        fields: [
+            { label: 'Codigo', name: 'code', type: 'text', value: group.code, required: true },
+            { label: 'Nombre', name: 'name', type: 'text', value: group.name, required: true },
+            { label: 'Turno', name: 'shift', type: 'select', value: group.shift, options: [{ value: 'maniana', label: 'Maniana' }, { value: 'tarde', label: 'Tarde' }, { value: 'noche', label: 'Noche' }] },
+            { label: 'Modalidad', name: 'class_modality', type: 'select', value: group.class_modality, options: [{ value: 'presencial', label: 'Presencial' }, { value: 'virtual', label: 'Virtual' }, { value: 'semipresencial', label: 'Semipresencial' }] },
+        ],
+        onSubmit: async (data) => {
+            await requestJson(`/api/groups/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+            toast('Grupo actualizado');
+            await loadAll();
+            renderGroups();
+        }
+    });
 }
 
 // ── Estado de filtros y panel lateral de estudiantes ──────────────────────
@@ -802,7 +960,7 @@ function renderStudentsTable() {
                             ${student.status === 'activo'
                                 ? `<button class="button warn small" onclick="openStudentStatus(${student.id})">Dar de baja</button>`
                                 : `<button class="button secondary small" onclick="openStudentStatus(${student.id})">Reactivar</button>`}
-                            <button class="button danger small" onclick="deleteStudent(${student.id}, '${escapeHtml(student.full_name)}')">Eliminar</button>
+                            <button class="button danger small" onclick="deleteStudent(${student.id}, '${escapeHtml(student.full_name)}')">${state.user?.role === 'superadministrador' ? 'Eliminar' : 'Solicitar baja'}</button>
                         </td>
                     </tr>
                 `).join('')}
@@ -849,23 +1007,40 @@ function closeSidePanel() {
     document.getElementById('sidePanel')?.remove();
 }
 
-// ── Eliminar estudiante permanentemente ──────────────────────────────────
+// ── Eliminar / solicitar eliminación de estudiante ───────────────────────
 window.deleteStudent = async function(id, name) {
-    const confirmed = confirm(
-        `¡ATENCIÓN!\n\nEstás a punto de ELIMINAR permanentemente a ${name}.\n` +
-        `Esta acción borrará al estudiante, todas sus inscripciones y todas sus notas.\n\n` +
-        `¿Estás absolutamente seguro de que deseas continuar?`
-    );
-    if (!confirmed) return;
+    const isSuperAdmin = state.user?.role === 'superadministrador';
 
-    try {
-        await requestJson(`/api/students/${id}`, { method: 'DELETE' });
-        toast('Estudiante eliminado con éxito');
-        await loadAll();
-        applyStudentFilters();
-        refreshStudentsTable();
-    } catch (error) {
-        toast(error.message);
+    if (isSuperAdmin) {
+        // Superadmin: eliminación directa con confirmación
+        const confirmed = confirm(
+            `¡ATENCIÓN!\n\nEstás a punto de ELIMINAR permanentemente a ${name}.\n` +
+            `Esta acción borrará al estudiante, todas sus inscripciones y todas sus notas.\n\n` +
+            `¿Estás absolutamente seguro de que deseas continuar?`
+        );
+        if (!confirmed) return;
+        try {
+            await requestJson(`/api/students/${id}`, { method: 'DELETE' });
+            toast('Estudiante eliminado con éxito');
+            await loadAll();
+            applyStudentFilters();
+            refreshStudentsTable();
+        } catch (error) {
+            toast(error.message);
+        }
+    } else {
+        // Docente: modal de solicitud con causa obligatoria
+        openEditModal({
+            title: `Solicitar eliminación de ${name}`,
+            fields: [
+                { label: 'Causa (obligatoria)', name: 'reason', type: 'textarea', value: '', required: true }
+            ],
+            onSubmit: async (data) => {
+                if (!data.reason?.trim()) throw new Error('Debes indicar una causa');
+                await requestJson(`/api/students/${id}/delete_request`, { method: 'POST', body: JSON.stringify(data) });
+                toast('Solicitud enviada al administrador');
+            }
+        });
     }
 };
 
@@ -1787,6 +1962,90 @@ function downloadCsv(filename, rows) {
     link.click();
     URL.revokeObjectURL(link.href);
 }
+
+// ── Módulo Solicitudes (solo superadministrador) ───────────────────────────
+async function renderSolicitudes() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        ${pageHeader('Solicitudes de eliminación', 'Revisa y resuelve las solicitudes enviadas por los docentes.', 'Administración')}
+        <article class="card">
+            <div class="card-header"><h3>Solicitudes pendientes</h3></div>
+            <div class="table-wrap" id="solicitudesBox"><div class="empty">Cargando...</div></div>
+        </article>
+    `;
+    await refreshSolicitudes();
+}
+
+async function refreshSolicitudes() {
+    const box = document.getElementById('solicitudesBox');
+    if (!box) return;
+    try {
+        const rows = await requestJson('/api/deletion_requests');
+        if (rows.length === 0) {
+            box.innerHTML = '<div class="empty">No hay solicitudes registradas.</div>';
+            return;
+        }
+        box.innerHTML = `
+            <table>
+                <thead><tr>
+                    <th>Estudiante</th>
+                    <th>Estado actual</th>
+                    <th>Solicitado por</th>
+                    <th>Causa</th>
+                    <th>Fecha</th>
+                    <th>Estado solicitud</th>
+                    <th></th>
+                </tr></thead>
+                <tbody>
+                    ${rows.map(r => `
+                        <tr>
+                            <td><strong>${escapeHtml(r.student_name)}</strong></td>
+                            <td>${studentStatusBadge(r.student_status)}</td>
+                            <td>${escapeHtml(r.requested_by)}</td>
+                            <td style="max-width:220px;white-space:pre-wrap">${escapeHtml(r.reason)}</td>
+                            <td><span class="stat-note">${new Date(r.created_at).toLocaleDateString('es-BO')}</span></td>
+                            <td>${solicitudBadge(r.status)}</td>
+                            <td>
+                                ${r.status === 'pendiente' ? `
+                                    <button class="button primary btn-sm" onclick="resolveDeletionRequest(${r.id},'aprobada')">Aprobar</button>
+                                    <button class="button secondary btn-sm" onclick="resolveDeletionRequest(${r.id},'rechazada')">Rechazar</button>
+                                ` : '—'}
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (err) {
+        box.innerHTML = `<div class="empty">Error al cargar: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function solicitudBadge(status) {
+    const map = {
+        pendiente:  { cls: 'warn',   label: 'Pendiente' },
+        aprobada:   { cls: 'ok',     label: 'Aprobada' },
+        rechazada:  { cls: 'danger', label: 'Rechazada' }
+    };
+    const s = map[status] || { cls: 'neutral', label: status };
+    return `<span class="badge ${s.cls}">${s.label}</span>`;
+}
+
+window.resolveDeletionRequest = async function(id, status) {
+    const label = status === 'aprobada' ? 'APROBAR (eliminará al estudiante permanentemente)' : 'RECHAZAR';
+    if (!confirm(`¿Confirmas ${label} esta solicitud?`)) return;
+    try {
+        const result = await requestJson(`/api/deletion_requests/${id}/resolve`, {
+            method: 'PUT',
+            body: JSON.stringify({ status })
+        });
+        toast(result.message);
+        if (status === 'aprobada') await loadAll();
+        await refreshSolicitudes();
+    } catch (err) {
+        toast(err.message);
+    }
+};
 
 async function bootstrap() {
     if (!token()) {
