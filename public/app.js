@@ -598,8 +598,9 @@ function applyStudentFilters() {
         }
         if (q) {
             const inName  = s.full_name.toLowerCase().includes(q);
+            const inCi    = (s.ci || '').toLowerCase().includes(q);
             const inPhone = (s.phone || '').toLowerCase().includes(q);
-            if (!inName && !inPhone) return false;
+            if (!inName && !inCi && !inPhone) return false;
         }
         return true;
     });
@@ -619,10 +620,10 @@ async function renderStudents() {
             <label style="flex:2;min-width:220px">
                 <span style="display:flex;align-items:center;gap:6px">
                     🔍 Buscar estudiante
-                    <span style="font-weight:400;color:var(--muted);font-size:0.72rem">(nombre o celular)</span>
+                    <span style="font-weight:400;color:var(--muted);font-size:0.72rem">(nombre, CI o celular)</span>
                 </span>
                 <div style="position:relative">
-                    <input id="filterSearch" type="text" placeholder="Ej: García, 7xxxxxxx..."
+                    <input id="filterSearch" type="text" placeholder="Ej: García, 1234567, 7xxxxxxx..."
                         value="${escapeHtml(studentState.filters.search)}"
                         style="padding-left:12px;padding-right:36px">
                     <button id="btnClearSearch" type="button" title="Limpiar búsqueda"
@@ -676,6 +677,9 @@ async function renderStudents() {
                     <form id="studentForm" class="form-grid">
                         <label>Nombre <input name="first_name" required></label>
                         <label>Apellido <input name="last_name" required></label>
+                        <label>CI / Carnet (Opcional)
+                            <input name="ci" placeholder="Ej: 1234567" maxlength="20">
+                        </label>
                         <label>Celular <input name="phone" placeholder="Ej: 7xxxxxxx"></label>
                         <label>Grupo
                             <select name="group_id" required>
@@ -755,13 +759,14 @@ function renderStudentsTable() {
     const q = studentState.filters.search.trim();
     if (studentState.filtered.length === 0) {
         return q
-            ? `<div class="empty">Sin resultados para <strong>"${escapeHtml(q)}"</strong>. Intenta con otro nombre o celular.</div>`
+            ? `<div class="empty">Sin resultados para <strong>"${escapeHtml(q)}"</strong>. Intenta con otro nombre, CI o celular.</div>`
             : '<div class="empty">No hay estudiantes que coincidan con los filtros aplicados.</div>';
     }
     return `
         <table>
             <thead><tr>
                 <th>Estudiante</th>
+                <th>CI</th>
                 <th>Grupo / Sede</th>
                 <th>Carrera</th>
                 <th>Estado</th>
@@ -780,6 +785,11 @@ function renderStudentsTable() {
                             </div>
                         </td>
                         <td>
+                            ${student.ci
+                                ? `<span style="font-family:monospace;font-size:.85rem">${highlightMatch(student.ci, q)}</span>`
+                                : '<span class="stat-note">—</span>'}
+                        </td>
+                        <td>
                             ${student.group_code
                                 ? `<strong>${escapeHtml(student.group_code)}</strong><br><span class="stat-note">${escapeHtml(student.campus_name || '')}</span>`
                                 : '<span class="stat-note">Sin grupo activo</span>'}
@@ -790,8 +800,9 @@ function renderStudentsTable() {
                             <button class="button secondary small" onclick="openStudentEdit(${student.id})">Editar</button>
                             <button class="button secondary small" onclick="openStudentTransfer(${student.id})">Cambiar grupo</button>
                             ${student.status === 'activo'
-                                ? `<button class="button danger small" onclick="openStudentStatus(${student.id})">Dar de baja</button>`
+                                ? `<button class="button warn small" onclick="openStudentStatus(${student.id})">Dar de baja</button>`
                                 : `<button class="button secondary small" onclick="openStudentStatus(${student.id})">Reactivar</button>`}
+                            <button class="button danger small" onclick="deleteStudent(${student.id}, '${escapeHtml(student.full_name)}')">Eliminar</button>
                         </td>
                     </tr>
                 `).join('')}
@@ -838,6 +849,26 @@ function closeSidePanel() {
     document.getElementById('sidePanel')?.remove();
 }
 
+// ── Eliminar estudiante permanentemente ──────────────────────────────────
+window.deleteStudent = async function(id, name) {
+    const confirmed = confirm(
+        `¡ATENCIÓN!\n\nEstás a punto de ELIMINAR permanentemente a ${name}.\n` +
+        `Esta acción borrará al estudiante, todas sus inscripciones y todas sus notas.\n\n` +
+        `¿Estás absolutamente seguro de que deseas continuar?`
+    );
+    if (!confirmed) return;
+
+    try {
+        await requestJson(`/api/students/${id}`, { method: 'DELETE' });
+        toast('Estudiante eliminado con éxito');
+        await loadAll();
+        applyStudentFilters();
+        refreshStudentsTable();
+    } catch (error) {
+        toast(error.message);
+    }
+};
+
 // ── Editar datos del estudiante ───────────────────────────────────────────
 window.openStudentEdit = function(id) {
     const student = state.students.find(s => s.id === id);
@@ -858,6 +889,9 @@ window.openStudentEdit = function(id) {
                 </label>
                 <label>Apellido
                     <input name="last_name" value="${escapeHtml(student.last_name)}" required>
+                </label>
+                <label>CI / Carnet (Opcional)
+                    <input name="ci" value="${escapeHtml(student.ci || '')}" placeholder="Ej: 1234567" maxlength="20">
                 </label>
                 <label>Celular
                     <input name="phone" value="${escapeHtml(student.phone || '')}" placeholder="Ej: 7xxxxxxx">
