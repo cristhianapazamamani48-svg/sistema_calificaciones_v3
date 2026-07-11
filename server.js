@@ -859,20 +859,49 @@ app.post('/api/grades', async (req, res) => {
 app.get('/api/students', async (req, res) => {
     let connection;
     try {
+        const { campus_id, career_id, group_id, status } = req.query;
+        const conditions = [];
+        const params = [];
+
+        if (parseId(campus_id)) {
+            conditions.push('g.campus_id = ?');
+            params.push(parseId(campus_id));
+        }
+        if (parseId(career_id)) {
+            conditions.push('e.career_id = ?');
+            params.push(parseId(career_id));
+        }
+        if (parseId(group_id)) {
+            conditions.push('e.group_id = ?');
+            params.push(parseId(group_id));
+        }
+        if (status && status !== 'todos') {
+            conditions.push('s.status = ?');
+            params.push(status);
+        }
+
+        const whereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
+
         connection = await pool.getConnection();
         const [rows] = await connection.query(`
             SELECT
                 s.*,
                 CONCAT(s.first_name, ' ', s.last_name) AS full_name,
+                g.id AS group_id,
                 g.code AS group_code,
                 g.name AS group_name,
-                c.name AS career_name
+                c.id AS career_id,
+                c.name AS career_name,
+                ca.id AS campus_id,
+                ca.name AS campus_name
             FROM students s
             LEFT JOIN enrollments e ON s.id = e.student_id AND e.status = 'activo'
             LEFT JOIN academic_groups g ON e.group_id = g.id
             LEFT JOIN careers c ON e.career_id = c.id
+            LEFT JOIN campuses ca ON g.campus_id = ca.id
+            WHERE 1=1 ${whereClause}
             ORDER BY s.last_name ASC, s.first_name ASC
-        `);
+        `, params);
         res.json(rows);
     } catch (error) {
         console.error(error);
@@ -917,6 +946,365 @@ app.post('/api/students', async (req, res) => {
         res.status(201).json({ id: student.insertId, message: 'Estudiante inscrito al grupo completo' });
     } catch (error) {
         if (connection) await connection.rollback();
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.put('/api/students/:id', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        const { first_name, last_name, phone, notes } = req.body;
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+        if (!requiredText(first_name) || !requiredText(last_name)) {
+            return res.status(400).json({ error: 'Nombre y apellido son obligatorios' });
+        }
+
+        connection = await pool.getConnection();
+        const [result] = await connection.query(
+            'UPDATE students SET first_name = ?, last_name = ?, phone = ?, notes = ? WHERE id = ?',
+            [first_name.trim(), last_name.trim(), phone || null, notes || null, id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Estudiante no encontrado' });
+        res.json({ message: 'Datos del estudiante actualizados' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.put('/api/students/:id/status', async (req, res) => {
+    let connection;
+    try {
+        const id = parseId(req.params.id);
+        const { status } = req.body;
+        const validStatuses = ['activo', 'retirado', 'abandono', 'egresado', 'reprobo'];
+        if (!id) return res.status(400).json({ error: 'ID invalido' });
+        if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Estado invalido' });
+
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [result] = await connection.query(
+            'UPDATE students SET status = ? WHERE id = ?',
+            [status, id]
+        );
+        if (result.affectedRows === 0) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Estudiante no encontrado' });
+        }
+
+        // Sincronizar el estado de sus inscripciones activas si se da de baja
+        if (status !== 'activo') {
+            await connection.query(
+                "UPDATE enrollments SET status = ? WHERE student_id = ? AND status = 'activo'",
+                [status, id]
+            );
+        } else {
+            // Al reactivar: poner sus inscripciones como activo
+            await connection.query(
+                "UPDATE enrollments SET status = 'activo' WHERE student_id = ?",
+                [id]
+            );
+        }
+
+        await connection.commit();
+        res.json({ message: `Estado del estudiante actualizado a "${status}"` });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.post('/api/students/:id/transfer', async (req, res) => {
+    let connection;
+    try {
+        const studentId = parseId(req.params.id);
+        const newGroupId = parseId(req.body.group_id);
+        if (!studentId || !newGroupId) return res.status(400).json({ error: 'Estudiante y grupo de destino son obligatorios' });
+
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        // Verificar que el estudiante existe
+        const [[student]] = await connection.query('SELECT id, status FROM students WHERE id = ? LIMIT 1', [studentId]);
+        if (!student) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Estudiante no encontrado' });
+        }
+
+        // Verificar que el grupo destino existe
+        const [[newGroup]] = await connection.query(
+            'SELECT id, career_id, academic_year_id FROM academic_groups WHERE id = ? AND status = "activo" LIMIT 1',
+            [newGroupId]
+        );
+        if (!newGroup) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Grupo de destino no encontrado o no esta activo' });
+        }
+
+        // Verificar que no esta ya inscrito en ese grupo
+        const [[existing]] = await connection.query(
+            'SELECT id FROM enrollments WHERE student_id = ? AND group_id = ? LIMIT 1',
+            [studentId, newGroupId]
+        );
+        if (existing) {
+            await connection.rollback();
+            return res.status(400).json({ error: 'El estudiante ya esta inscrito en ese grupo' });
+        }
+
+        // Desactivar inscripciones anteriores activas
+        await connection.query(
+            "UPDATE enrollments SET status = 'retirado' WHERE student_id = ? AND status = 'activo'",
+            [studentId]
+        );
+
+        // Crear nueva inscripcion
+        await connection.query(
+            'INSERT INTO enrollments (student_id, group_id, career_id, academic_year_id, status) VALUES (?, ?, ?, ?, ?)',
+            [studentId, newGroupId, newGroup.career_id, newGroup.academic_year_id, 'activo']
+        );
+
+        await connection.commit();
+        res.json({ message: 'Estudiante transferido al nuevo grupo correctamente' });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.get('/api/students/:id/kardex', async (req, res) => {
+    let connection;
+    try {
+        const studentId = parseId(req.params.id);
+        if (!studentId) return res.status(400).json({ error: 'ID de estudiante no valido' });
+
+        connection = await pool.getConnection();
+
+        // 1. Obtener datos basicos del estudiante
+        const [[student]] = await connection.query(
+            'SELECT id, first_name, last_name, phone, notes, status, CONCAT(first_name, " ", last_name) AS full_name FROM students WHERE id = ? LIMIT 1',
+            [studentId]
+        );
+        if (!student) return res.status(404).json({ error: 'Estudiante no encontrado' });
+
+        // 2. Obtener las inscripciones del estudiante
+        const [enrollments] = await connection.query(`
+            SELECT 
+                e.id AS enrollment_id, 
+                e.group_id, 
+                e.career_id, 
+                c.name AS career_name, 
+                ca.name AS campus_name, 
+                ay.name AS academic_year_name, 
+                g.code AS group_code,
+                e.status AS enrollment_status
+            FROM enrollments e
+            JOIN academic_groups g ON e.group_id = g.id
+            JOIN careers c ON e.career_id = c.id
+            JOIN campuses ca ON g.campus_id = ca.id
+            JOIN academic_years ay ON e.academic_year_id = ay.id
+            WHERE e.student_id = ?
+        `, [studentId]);
+
+        if (enrollments.length === 0) {
+            return res.json({ student, enrollments: [] });
+        }
+
+        const groupIds = enrollments.map(e => e.group_id);
+        const careerIds = enrollments.map(e => e.career_id);
+
+        // 3. Obtener parciales de las carreras implicadas
+        const [terms] = await connection.query(`
+            SELECT id AS term_id, career_id, name AS term_name, percentage AS term_percentage, term_order
+            FROM terms
+            WHERE career_id IN (?)
+            ORDER BY term_order ASC
+        `, [careerIds]);
+
+        // 4. Obtener materias asignadas a los grupos
+        const [assignments] = await connection.query(`
+            SELECT 
+                gsa.id AS assignment_id, 
+                gsa.group_id,
+                s.id AS subject_id, 
+                s.name AS subject_name, 
+                s.code AS subject_code, 
+                s.passing_score,
+                s.grade_number
+            FROM group_subject_assignments gsa
+            JOIN subjects s ON gsa.subject_id = s.id
+            WHERE gsa.group_id IN (?)
+        `, [groupIds]);
+
+        if (assignments.length === 0) {
+            return res.json({
+                student,
+                enrollments: enrollments.map(e => ({
+                    ...e,
+                    terms: terms.filter(t => t.career_id === e.career_id),
+                    subjects: []
+                }))
+            });
+        }
+
+        const assignmentIds = assignments.map(a => a.assignment_id);
+
+        // 5. Obtener todas las categorias de las materias asignadas
+        const [categories] = await connection.query(`
+            SELECT id AS category_id, assignment_id, term_id, name AS category_name, weight_percentage
+            FROM evaluation_categories
+            WHERE assignment_id IN (?)
+        `, [assignmentIds]);
+
+        const categoryIds = categories.map(c => c.category_id);
+
+        let evaluations = [];
+        let grades = [];
+
+        if (categoryIds.length > 0) {
+            // 6. Obtener todas las evaluaciones para estas categorias
+            const [evalRows] = await connection.query(`
+                SELECT id AS evaluation_id, category_id, name AS evaluation_name
+                FROM evaluations
+                WHERE category_id IN (?)
+            `, [categoryIds]);
+            evaluations = evalRows;
+
+            const evaluationIds = evaluations.map(ev => ev.evaluation_id);
+
+            if (evaluationIds.length > 0) {
+                // 7. Obtener todas las calificaciones del estudiante para estas evaluaciones
+                const [gradeRows] = await connection.query(`
+                    SELECT evaluation_id, score
+                    FROM grades
+                    WHERE student_id = ? AND evaluation_id IN (?)
+                `, [studentId, evaluationIds]);
+                grades = gradeRows;
+            }
+        }
+
+        // Crear mapas para busquedas rapidas O(1)
+        const gradesMap = new Map(grades.map(g => [g.evaluation_id, Number(g.score)]));
+
+        // Mapear evaluaciones por categoria
+        const evalsByCategory = new Map();
+        evaluations.forEach(ev => {
+            if (!evalsByCategory.has(ev.category_id)) {
+                evalsByCategory.set(ev.category_id, []);
+            }
+            evalsByCategory.get(ev.category_id).push(ev);
+        });
+
+        // Mapear categorias por asignacion y parcial
+        const categoriesByAssignAndTerm = new Map();
+        categories.forEach(cat => {
+            const key = `${cat.assignment_id}_${cat.term_id}`;
+            if (!categoriesByAssignAndTerm.has(key)) {
+                categoriesByAssignAndTerm.set(key, []);
+            }
+            categoriesByAssignAndTerm.get(key).push(cat);
+        });
+
+        // Agrupar resultados por inscripcion
+        const resultEnrollments = enrollments.map(enrollment => {
+            const enrollmentTerms = terms.filter(t => t.career_id === enrollment.career_id);
+            const enrollmentAssignments = assignments.filter(a => a.group_id === enrollment.group_id);
+
+            const subjectList = enrollmentAssignments.map(subject => {
+                const termGrades = {};
+                let hasIncompleteTerms = false;
+
+                enrollmentTerms.forEach(term => {
+                    const key = `${subject.assignment_id}_${term.term_id}`;
+                    const termCats = categoriesByAssignAndTerm.get(key) || [];
+
+                    if (termCats.length === 0) {
+                        termGrades[term.term_id] = 0;
+                        hasIncompleteTerms = true;
+                        return;
+                    }
+
+                    let termInternalScore = 0;
+
+                    termCats.forEach(category => {
+                        const catEvals = evalsByCategory.get(category.category_id) || [];
+
+                        if (catEvals.length === 0) {
+                            // Categoria vacia, aporta 0
+                            hasIncompleteTerms = true;
+                            return;
+                        }
+
+                        let categoryGradesSum = 0;
+                        catEvals.forEach(ev => {
+                            categoryGradesSum += gradesMap.get(ev.evaluation_id) || 0;
+                        });
+
+                        const categoryAverage = categoryGradesSum / catEvals.length;
+                        termInternalScore += categoryAverage * (Number(category.weight_percentage) / 100);
+                    });
+
+                    const termOfficialScore = termInternalScore * (Number(term.term_percentage) / 100);
+                    termGrades[term.term_id] = Number(termOfficialScore.toFixed(2));
+                });
+
+                // Calcular nota final (suma de las notas oficiales de todos los parciales)
+                const finalScore = Object.values(termGrades).reduce((sum, score) => sum + score, 0);
+
+                // Determinar el estado de la materia
+                let subjectStatus = 'Reprobado';
+                if (finalScore >= Number(subject.passing_score)) {
+                    subjectStatus = 'Aprobado';
+                } else if (hasIncompleteTerms && enrollment.enrollment_status === 'activo') {
+                    subjectStatus = 'Cursando';
+                }
+
+                return {
+                    subject_id: subject.subject_id,
+                    name: subject.subject_name,
+                    code: subject.subject_code,
+                    grade_number: subject.grade_number,
+                    passing_score: Number(subject.passing_score),
+                    term_grades: termGrades,
+                    final_score: Number(finalScore.toFixed(2)),
+                    status: subjectStatus
+                };
+            });
+
+            return {
+                enrollment_id: enrollment.enrollment_id,
+                group_code: enrollment.group_code,
+                career_name: enrollment.career_name,
+                campus_name: enrollment.campus_name,
+                academic_year: enrollment.academic_year_name,
+                enrollment_status: enrollment.enrollment_status,
+                terms: enrollmentTerms.map(t => ({
+                    term_id: t.term_id,
+                    name: t.term_name,
+                    percentage: Number(t.term_percentage),
+                    term_order: t.term_order
+                })),
+                subjects: subjectList
+            };
+        });
+
+        res.json({
+            student,
+            enrollments: resultEnrollments
+        });
+    } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message });
     } finally {

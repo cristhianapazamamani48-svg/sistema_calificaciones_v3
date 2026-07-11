@@ -550,11 +550,90 @@ async function submitGroup(event) {
     renderGroups();
 }
 
-function renderStudents() {
+// ── Estado de filtros y panel lateral de estudiantes ──────────────────────
+const studentState = {
+    filters: { campus_id: '', career_id: '', group_id: '', status: '', name: '' },
+    filtered: [],
+    panelStudent: null,
+    panelMode: null  // 'edit' | 'transfer' | 'status'
+};
+
+function studentStatusBadge(status) {
+    const map = {
+        activo:   { cls: 'ok',      label: 'Activo' },
+        retirado: { cls: 'warn',    label: 'Retirado' },
+        abandono: { cls: 'danger',  label: 'Abandono' },
+        egresado: { cls: 'purple',  label: 'Egresado' },
+        reprobo:  { cls: 'danger',  label: 'Reprobó' }
+    };
+    const s = map[status] || { cls: 'neutral', label: status };
+    return `<span class="badge ${s.cls}">${s.label}</span>`;
+}
+
+function applyStudentFilters() {
+    const { campus_id, career_id, group_id, status, name } = studentState.filters;
+    studentState.filtered = state.students.filter(s => {
+        if (campus_id && String(s.campus_id) !== String(campus_id)) return false;
+        if (career_id && String(s.career_id) !== String(career_id)) return false;
+        if (group_id  && String(s.group_id)  !== String(group_id))  return false;
+        if (status    && s.status !== status)                        return false;
+        if (name) {
+            const q = name.toLowerCase();
+            if (!s.full_name.toLowerCase().includes(q)) return false;
+        }
+        return true;
+    });
+}
+
+async function renderStudents() {
     const content = document.getElementById('content');
+    applyStudentFilters();
+
+    const activeGroups = state.groups.filter(g => g.status === 'activo');
+
     content.innerHTML = `
-        ${pageHeader('Estudiantes', 'Al inscribir un estudiante al grupo, queda vinculado al grupo completo.', 'Operacion academica')}
+        ${pageHeader('Estudiantes', 'Gestiona la nómina de estudiantes: edita datos, cambia estado o transfiere entre grupos.', 'Operación académica')}
+
+        <!-- Barra de filtros -->
+        <div class="filter-bar">
+            <label>Buscar por nombre
+                <input id="filterName" type="text" placeholder="Ej: García..." value="${escapeHtml(studentState.filters.name)}">
+            </label>
+            <label>Sede
+                <select id="filterCampus">
+                    <option value="">Todas las sedes</option>
+                    ${state.campuses.map(c => `<option value="${c.id}" ${studentState.filters.campus_id == c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+                </select>
+            </label>
+            <label>Carrera
+                <select id="filterCareer">
+                    <option value="">Todas las carreras</option>
+                    ${state.careers.map(c => `<option value="${c.id}" ${studentState.filters.career_id == c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+                </select>
+            </label>
+            <label>Grupo
+                <select id="filterGroup">
+                    <option value="">Todos los grupos</option>
+                    ${activeGroups.map(g => `<option value="${g.id}" ${studentState.filters.group_id == g.id ? 'selected' : ''}>${escapeHtml(g.code)} — ${escapeHtml(g.name)}</option>`).join('')}
+                </select>
+            </label>
+            <label>Estado
+                <select id="filterStatus">
+                    <option value="">Todos</option>
+                    <option value="activo"   ${studentState.filters.status === 'activo'   ? 'selected' : ''}>Activo</option>
+                    <option value="retirado" ${studentState.filters.status === 'retirado' ? 'selected' : ''}>Retirado</option>
+                    <option value="abandono" ${studentState.filters.status === 'abandono' ? 'selected' : ''}>Abandono</option>
+                    <option value="egresado" ${studentState.filters.status === 'egresado' ? 'selected' : ''}>Egresado</option>
+                    <option value="reprobo"  ${studentState.filters.status === 'reprobo'  ? 'selected' : ''}>Reprobó</option>
+                </select>
+            </label>
+            <div class="filter-actions">
+                <button id="btnClearFilters" class="button secondary">Limpiar</button>
+            </div>
+        </div>
+
         <section class="grid two">
+            <!-- Formulario nueva inscripción -->
             <article class="card">
                 <div class="card-header"><h3>Inscribir estudiante</h3></div>
                 <div class="card-body">
@@ -564,35 +643,101 @@ function renderStudents() {
                         <label>Celular <input name="phone"></label>
                         <label>Grupo
                             <select name="group_id" required>
-                                ${state.groups.map((group) => `<option value="${group.id}">${escapeHtml(group.code)} - ${escapeHtml(group.name)}</option>`).join('')}
+                                ${activeGroups.map(g => `<option value="${g.id}">${escapeHtml(g.code)} — ${escapeHtml(g.name)}</option>`).join('')}
                             </select>
                         </label>
-                        <label>Observaciones <textarea name="notes" rows="3"></textarea></label>
-                        <button class="button primary">Inscribir</button>
+                        <label>Observaciones <textarea name="notes" rows="2"></textarea></label>
+                        <button class="button primary" type="submit">Inscribir al grupo</button>
                     </form>
                 </div>
             </article>
+
+            <!-- Tabla de estudiantes -->
             <article class="card">
-                <div class="card-header"><h3>Estudiantes registrados</h3></div>
+                <div class="card-header">
+                    <h3>Estudiantes registrados <span class="count-badge">${studentState.filtered.length}</span></h3>
+                </div>
                 <div class="table-wrap">${renderStudentsTable()}</div>
             </article>
         </section>
     `;
+
+    // Eventos de filtros
+    document.getElementById('filterName').addEventListener('input', e => {
+        studentState.filters.name = e.target.value;
+        refreshStudentsTable();
+    });
+    document.getElementById('filterCampus').addEventListener('change', e => {
+        studentState.filters.campus_id = e.target.value;
+        refreshStudentsTable();
+    });
+    document.getElementById('filterCareer').addEventListener('change', e => {
+        studentState.filters.career_id = e.target.value;
+        refreshStudentsTable();
+    });
+    document.getElementById('filterGroup').addEventListener('change', e => {
+        studentState.filters.group_id = e.target.value;
+        refreshStudentsTable();
+    });
+    document.getElementById('filterStatus').addEventListener('change', e => {
+        studentState.filters.status = e.target.value;
+        refreshStudentsTable();
+    });
+    document.getElementById('btnClearFilters').addEventListener('click', () => {
+        Object.assign(studentState.filters, { campus_id: '', career_id: '', group_id: '', status: '', name: '' });
+        renderStudents();
+    });
+
     document.getElementById('studentForm').addEventListener('submit', submitStudent);
 }
 
+function refreshStudentsTable() {
+    applyStudentFilters();
+    const countBadge = document.querySelector('.count-badge');
+    if (countBadge) countBadge.textContent = studentState.filtered.length;
+    const wrap = document.querySelector('.table-wrap');
+    if (wrap) wrap.innerHTML = renderStudentsTable();
+}
+
 function renderStudentsTable() {
-    if (state.students.length === 0) return '<div class="empty">No hay estudiantes registrados.</div>';
+    if (studentState.filtered.length === 0) {
+        return '<div class="empty">No hay estudiantes que coincidan con los filtros aplicados.</div>';
+    }
     return `
         <table>
-            <thead><tr><th>Estudiante</th><th>Grupo</th><th>Carrera</th><th>Estado</th></tr></thead>
+            <thead><tr>
+                <th>Estudiante</th>
+                <th>Grupo / Sede</th>
+                <th>Carrera</th>
+                <th>Estado</th>
+                <th style="text-align:right">Acciones</th>
+            </tr></thead>
             <tbody>
-                ${state.students.map((student) => `
-                    <tr>
-                        <td><strong>${escapeHtml(student.full_name)}</strong><br><span class="stat-note">${escapeHtml(student.phone || 'Sin celular')}</span></td>
-                        <td>${escapeHtml(student.group_code || 'Sin grupo')}<br><span class="stat-note">${escapeHtml(student.group_name || '')}</span></td>
-                        <td>${escapeHtml(student.career_name || 'Sin carrera')}</td>
-                        <td><span class="badge ok">${escapeHtml(student.status)}</span></td>
+                ${studentState.filtered.map(student => `
+                    <tr id="student-row-${student.id}">
+                        <td>
+                            <div class="student-cell">
+                                <span class="student-avatar">${escapeHtml(student.first_name.charAt(0).toUpperCase())}</span>
+                                <div class="student-info">
+                                    <strong>${escapeHtml(student.full_name)}</strong>
+                                    <span>${escapeHtml(student.phone || 'Sin celular')}</span>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            ${student.group_code
+                                ? `<strong>${escapeHtml(student.group_code)}</strong><br><span class="stat-note">${escapeHtml(student.campus_name || '')}</span>`
+                                : '<span class="stat-note">Sin grupo activo</span>'}
+                        </td>
+                        <td>${escapeHtml(student.career_name || '—')}</td>
+                        <td>${studentStatusBadge(student.status)}</td>
+                        <td class="actions-cell">
+                            <button class="button secondary small" onclick="openStudentEdit(${student.id})">Editar</button>
+                            <button class="button secondary small" onclick="openStudentTransfer(${student.id})">Cambiar grupo</button>
+                            ${student.status === 'activo'
+                                ? `<button class="button danger small" onclick="openStudentStatus(${student.id})">Dar de baja</button>`
+                                : `<button class="button secondary small" onclick="openStudentStatus(${student.id})">Reactivar</button>`}
+                        </td>
                     </tr>
                 `).join('')}
             </tbody>
@@ -603,11 +748,205 @@ function renderStudentsTable() {
 async function submitStudent(event) {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
-    await requestJson('/api/students', { method: 'POST', body: JSON.stringify(data) });
-    toast('Estudiante inscrito');
-    await loadAll();
-    renderStudents();
+    try {
+        await requestJson('/api/students', { method: 'POST', body: JSON.stringify(data) });
+        toast('Estudiante inscrito correctamente');
+        event.target.reset();
+        await loadAll();
+        applyStudentFilters();
+        refreshStudentsTable();
+    } catch (error) {
+        toast(error.message);
+    }
 }
+
+// ── Panel lateral ──────────────────────────────────────────────────────────
+function openSidePanel(html) {
+    closeSidePanel();
+    const overlay = document.createElement('div');
+    overlay.className = 'side-panel-overlay';
+    overlay.id = 'sidePanelOverlay';
+    overlay.addEventListener('click', closeSidePanel);
+
+    const panel = document.createElement('div');
+    panel.className = 'side-panel';
+    panel.id = 'sidePanel';
+    panel.innerHTML = html;
+    panel.addEventListener('click', e => e.stopPropagation());
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(panel);
+}
+
+function closeSidePanel() {
+    document.getElementById('sidePanelOverlay')?.remove();
+    document.getElementById('sidePanel')?.remove();
+}
+
+// ── Editar datos del estudiante ───────────────────────────────────────────
+window.openStudentEdit = function(id) {
+    const student = state.students.find(s => s.id === id);
+    if (!student) return;
+
+    openSidePanel(`
+        <div class="side-panel-header">
+            <h3>✏️ Editar datos</h3>
+            <button class="side-panel-close" onclick="closeSidePanel()">✕</button>
+        </div>
+        <div class="side-panel-body">
+            <div class="form-grid" style="margin-bottom:14px">
+                <p style="margin:0;color:var(--muted);font-size:.85rem">
+                    Modificando el perfil de <strong>${escapeHtml(student.full_name)}</strong>
+                </p>
+            </div>
+            <form id="editStudentForm" class="form-grid">
+                <label>Nombre
+                    <input name="first_name" value="${escapeHtml(student.first_name)}" required>
+                </label>
+                <label>Apellido
+                    <input name="last_name" value="${escapeHtml(student.last_name)}" required>
+                </label>
+                <label>Celular
+                    <input name="phone" value="${escapeHtml(student.phone || '')}">
+                </label>
+                <label>Observaciones
+                    <textarea name="notes" rows="4">${escapeHtml(student.notes || '')}</textarea>
+                </label>
+            </form>
+        </div>
+        <div class="side-panel-footer">
+            <button class="button primary" style="flex:1" onclick="saveStudentEdit(${id})">Guardar cambios</button>
+            <button class="button secondary" onclick="closeSidePanel()">Cancelar</button>
+        </div>
+    `);
+};
+
+window.saveStudentEdit = async function(id) {
+    const form = document.getElementById('editStudentForm');
+    if (!form) return;
+    const data = Object.fromEntries(new FormData(form));
+    try {
+        await requestJson(`/api/students/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+        toast('Datos actualizados correctamente');
+        closeSidePanel();
+        await loadAll();
+        applyStudentFilters();
+        refreshStudentsTable();
+    } catch (error) {
+        toast(error.message);
+    }
+};
+
+// ── Cambiar estado (baja / reactivar) ────────────────────────────────────
+window.openStudentStatus = function(id) {
+    const student = state.students.find(s => s.id === id);
+    if (!student) return;
+    const isActive = student.status === 'activo';
+
+    openSidePanel(`
+        <div class="side-panel-header">
+            <h3>${isActive ? '🔴 Dar de baja' : '🟢 Reactivar estudiante'}</h3>
+            <button class="side-panel-close" onclick="closeSidePanel()">✕</button>
+        </div>
+        <div class="side-panel-body">
+            <p style="color:var(--muted);font-size:.9rem">
+                ${isActive
+                    ? `Estás por dar de baja a <strong>${escapeHtml(student.full_name)}</strong>. Selecciona el motivo:`
+                    : `Reactivar a <strong>${escapeHtml(student.full_name)}</strong> lo volverá a poner en estado <em>activo</em> junto con sus inscripciones.`}
+            </p>
+            ${isActive ? `
+                <div class="form-grid" style="margin-top:16px">
+                    <label>Motivo de baja
+                        <select id="statusSelect">
+                            <option value="retirado">Retirado (cambio voluntario)</option>
+                            <option value="abandono">Abandono (sin comunicación)</option>
+                            <option value="egresado">Egresado</option>
+                            <option value="reprobo">Reprobó</option>
+                        </select>
+                    </label>
+                </div>
+            ` : ''}
+        </div>
+        <div class="side-panel-footer">
+            <button class="button ${isActive ? 'danger' : 'primary'}" style="flex:1"
+                onclick="saveStudentStatus(${id}, ${isActive})">
+                ${isActive ? 'Confirmar baja' : 'Reactivar estudiante'}
+            </button>
+            <button class="button secondary" onclick="closeSidePanel()">Cancelar</button>
+        </div>
+    `);
+};
+
+window.saveStudentStatus = async function(id, isActive) {
+    const status = isActive
+        ? (document.getElementById('statusSelect')?.value || 'retirado')
+        : 'activo';
+    try {
+        await requestJson(`/api/students/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+        toast(`Estado actualizado: "${status}"`);
+        closeSidePanel();
+        await loadAll();
+        applyStudentFilters();
+        refreshStudentsTable();
+    } catch (error) {
+        toast(error.message);
+    }
+};
+
+// ── Cambiar de grupo ──────────────────────────────────────────────────────
+window.openStudentTransfer = function(id) {
+    const student = state.students.find(s => s.id === id);
+    if (!student) return;
+    const activeGroups = state.groups.filter(g => g.status === 'activo' && g.id !== student.group_id);
+
+    openSidePanel(`
+        <div class="side-panel-header">
+            <h3>🔄 Cambiar de grupo</h3>
+            <button class="side-panel-close" onclick="closeSidePanel()">✕</button>
+        </div>
+        <div class="side-panel-body">
+            <p style="color:var(--muted);font-size:.9rem;margin:0 0 16px">
+                Transfiriendo a <strong>${escapeHtml(student.full_name)}</strong>.
+                ${student.group_code ? `Grupo actual: <strong>${escapeHtml(student.group_code)}</strong>.` : 'Sin grupo activo.'}
+                <br><br>
+                ⚠️ La inscripción anterior se marcará como <em>retirada</em> y se creará una nueva en el grupo seleccionado.
+            </p>
+            <div class="form-grid">
+                <label>Grupo destino
+                    <select id="transferGroupSelect">
+                        <option value="">— Selecciona un grupo —</option>
+                        ${activeGroups.map(g => `
+                            <option value="${g.id}">
+                                ${escapeHtml(g.code)} — ${escapeHtml(g.name)} · ${escapeHtml(g.career_name)} · ${escapeHtml(g.campus_name)}
+                            </option>
+                        `).join('')}
+                    </select>
+                </label>
+            </div>
+        </div>
+        <div class="side-panel-footer">
+            <button class="button primary" style="flex:1" onclick="saveStudentTransfer(${id})">Confirmar transferencia</button>
+            <button class="button secondary" onclick="closeSidePanel()">Cancelar</button>
+        </div>
+    `);
+};
+
+window.saveStudentTransfer = async function(id) {
+    const groupId = document.getElementById('transferGroupSelect')?.value;
+    if (!groupId) { toast('Selecciona un grupo de destino'); return; }
+    try {
+        await requestJson(`/api/students/${id}/transfer`, { method: 'POST', body: JSON.stringify({ group_id: groupId }) });
+        toast('Estudiante transferido correctamente');
+        closeSidePanel();
+        await loadAll();
+        applyStudentFilters();
+        refreshStudentsTable();
+    } catch (error) {
+        toast(error.message);
+    }
+};
+
+
 
 function assignmentOptions() {
     return state.assignments.map((assignment) => `
