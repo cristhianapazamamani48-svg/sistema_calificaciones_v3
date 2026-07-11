@@ -791,7 +791,7 @@ app.get('/api/gradebook', async (req, res) => {
         if (!context) return res.status(404).json({ error: 'Asignacion o parcial no encontrado' });
 
         const [students] = await connection.query(`
-            SELECT s.id, CONCAT(s.first_name, ' ', s.last_name) AS full_name
+            SELECT s.id, CONCAT(s.last_name, ' ', s.first_name) AS full_name
             FROM enrollments e
             JOIN students s ON e.student_id = s.id
             WHERE e.group_id = ? AND e.status = 'activo'
@@ -882,8 +882,8 @@ app.get('/api/students', async (req, res) => {
         // Búsqueda general: nombre completo, CI o celular
         if (search && search.trim()) {
             const term = `%${search.trim()}%`;
-            conditions.push('(CONCAT(s.first_name, " ", s.last_name) LIKE ? OR s.ci LIKE ? OR s.phone LIKE ?)');
-            params.push(term, term, term);
+            conditions.push('(CONCAT(s.first_name, " ", s.last_name) LIKE ? OR CONCAT(s.last_name, " ", s.first_name) LIKE ? OR s.ci LIKE ? OR s.phone LIKE ?)');
+            params.push(term, term, term, term);
         }
 
         const whereClause = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
@@ -892,7 +892,7 @@ app.get('/api/students', async (req, res) => {
         const [rows] = await connection.query(`
             SELECT
                 s.*,
-                CONCAT(s.first_name, ' ', s.last_name) AS full_name,
+                CONCAT(s.last_name, ' ', s.first_name) AS full_name,
                 g.id AS group_id,
                 g.code AS group_code,
                 g.name AS group_name,
@@ -1121,7 +1121,7 @@ app.get('/api/students/:id/kardex', async (req, res) => {
 
         // 1. Obtener datos basicos del estudiante
         const [[student]] = await connection.query(
-            'SELECT id, first_name, last_name, phone, notes, status, CONCAT(first_name, " ", last_name) AS full_name FROM students WHERE id = ? LIMIT 1',
+            'SELECT id, first_name, last_name, phone, notes, status, CONCAT(last_name, " ", first_name) AS full_name FROM students WHERE id = ? LIMIT 1',
             [studentId]
         );
         if (!student) return res.status(404).json({ error: 'Estudiante no encontrado' });
