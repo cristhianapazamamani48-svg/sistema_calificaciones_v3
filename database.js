@@ -162,9 +162,10 @@ async function initializeDatabase() {
         `);
 
         // Migración segura: agrega ci si la tabla ya existía sin ese campo
-        await connection.query(`
-            ALTER TABLE students ADD COLUMN IF NOT EXISTS ci VARCHAR(20) NULL AFTER last_name
-        `);
+        const [columns] = await connection.query("SHOW COLUMNS FROM students LIKE 'ci'");
+        if (columns.length === 0) {
+            await connection.query("ALTER TABLE students ADD COLUMN ci VARCHAR(20) NULL AFTER last_name");
+        }
 
         await connection.query(`
             CREATE TABLE IF NOT EXISTS enrollments (
