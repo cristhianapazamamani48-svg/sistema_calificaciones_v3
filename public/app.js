@@ -552,7 +552,7 @@ async function submitGroup(event) {
 
 // ── Estado de filtros y panel lateral de estudiantes ──────────────────────
 const studentState = {
-    filters: { campus_id: '', career_id: '', group_id: '', status: '', search: '' },
+    filters: { campus_id: '', career_id: '', group_id: '', subject_id: '', status: '', search: '' },
     filtered: [],
     panelStudent: null,
     panelMode: null  // 'edit' | 'transfer' | 'status'
@@ -585,18 +585,21 @@ function highlightMatch(text, query) {
 }
 
 function applyStudentFilters() {
-    const { campus_id, career_id, group_id, status, search } = studentState.filters;
+    const { campus_id, career_id, group_id, subject_id, status, search } = studentState.filters;
     const q = search.trim().toLowerCase();
     studentState.filtered = state.students.filter(s => {
         if (campus_id && String(s.campus_id) !== String(campus_id)) return false;
         if (career_id && String(s.career_id) !== String(career_id)) return false;
         if (group_id  && String(s.group_id)  !== String(group_id))  return false;
         if (status    && s.status !== status)                        return false;
+        if (subject_id) {
+            const hasSubject = state.assignments.some(a => String(a.group_id) === String(s.group_id) && String(a.subject_id) === String(subject_id));
+            if (!hasSubject) return false;
+        }
         if (q) {
             const inName  = s.full_name.toLowerCase().includes(q);
-            const inCi    = (s.ci || '').toLowerCase().includes(q);
             const inPhone = (s.phone || '').toLowerCase().includes(q);
-            if (!inName && !inCi && !inPhone) return false;
+            if (!inName && !inPhone) return false;
         }
         return true;
     });
@@ -616,10 +619,10 @@ async function renderStudents() {
             <label style="flex:2;min-width:220px">
                 <span style="display:flex;align-items:center;gap:6px">
                     🔍 Buscar estudiante
-                    <span style="font-weight:400;color:var(--muted);font-size:0.72rem">(nombre, CI o celular)</span>
+                    <span style="font-weight:400;color:var(--muted);font-size:0.72rem">(nombre o celular)</span>
                 </span>
                 <div style="position:relative">
-                    <input id="filterSearch" type="text" placeholder="Ej: García, 1234567, 7xxxxxxx..."
+                    <input id="filterSearch" type="text" placeholder="Ej: García, 7xxxxxxx..."
                         value="${escapeHtml(studentState.filters.search)}"
                         style="padding-left:12px;padding-right:36px">
                     <button id="btnClearSearch" type="button" title="Limpiar búsqueda"
@@ -642,6 +645,12 @@ async function renderStudents() {
                 <select id="filterGroup">
                     <option value="">Todos los grupos</option>
                     ${activeGroups.map(g => `<option value="${g.id}" ${studentState.filters.group_id == g.id ? 'selected' : ''}>${escapeHtml(g.code)} — ${escapeHtml(g.name)}</option>`).join('')}
+                </select>
+            </label>
+            <label>Materia
+                <select id="filterSubject">
+                    <option value="">Todas las materias</option>
+                    ${state.subjects.map(sub => `<option value="${sub.id}" ${studentState.filters.subject_id == sub.id ? 'selected' : ''}>${escapeHtml(sub.name)}</option>`).join('')}
                 </select>
             </label>
             <label>Estado
@@ -667,9 +676,6 @@ async function renderStudents() {
                     <form id="studentForm" class="form-grid">
                         <label>Nombre <input name="first_name" required></label>
                         <label>Apellido <input name="last_name" required></label>
-                        <label>CI / Carnet
-                            <input name="ci" placeholder="Ej: 1234567" maxlength="20">
-                        </label>
                         <label>Celular <input name="phone" placeholder="Ej: 7xxxxxxx"></label>
                         <label>Grupo
                             <select name="group_id" required>
@@ -721,12 +727,16 @@ async function renderStudents() {
         studentState.filters.group_id = e.target.value;
         refreshStudentsTable();
     });
+    document.getElementById('filterSubject').addEventListener('change', e => {
+        studentState.filters.subject_id = e.target.value;
+        refreshStudentsTable();
+    });
     document.getElementById('filterStatus').addEventListener('change', e => {
         studentState.filters.status = e.target.value;
         refreshStudentsTable();
     });
     document.getElementById('btnClearFilters').addEventListener('click', () => {
-        Object.assign(studentState.filters, { campus_id: '', career_id: '', group_id: '', status: '', search: '' });
+        Object.assign(studentState.filters, { campus_id: '', career_id: '', group_id: '', subject_id: '', status: '', search: '' });
         renderStudents();
     });
 
@@ -745,14 +755,13 @@ function renderStudentsTable() {
     const q = studentState.filters.search.trim();
     if (studentState.filtered.length === 0) {
         return q
-            ? `<div class="empty">Sin resultados para <strong>"${escapeHtml(q)}"</strong>. Intenta con otro nombre, CI o celular.</div>`
+            ? `<div class="empty">Sin resultados para <strong>"${escapeHtml(q)}"</strong>. Intenta con otro nombre o celular.</div>`
             : '<div class="empty">No hay estudiantes que coincidan con los filtros aplicados.</div>';
     }
     return `
         <table>
             <thead><tr>
                 <th>Estudiante</th>
-                <th>CI</th>
                 <th>Grupo / Sede</th>
                 <th>Carrera</th>
                 <th>Estado</th>
@@ -769,11 +778,6 @@ function renderStudentsTable() {
                                     <span>${highlightMatch(student.phone || 'Sin celular', q)}</span>
                                 </div>
                             </div>
-                        </td>
-                        <td>
-                            ${student.ci
-                                ? `<span style="font-family:monospace;font-size:.85rem">${highlightMatch(student.ci, q)}</span>`
-                                : '<span class="stat-note">—</span>'}
                         </td>
                         <td>
                             ${student.group_code
@@ -854,9 +858,6 @@ window.openStudentEdit = function(id) {
                 </label>
                 <label>Apellido
                     <input name="last_name" value="${escapeHtml(student.last_name)}" required>
-                </label>
-                <label>CI / Carnet de Identidad
-                    <input name="ci" value="${escapeHtml(student.ci || '')}" placeholder="Ej: 1234567" maxlength="20">
                 </label>
                 <label>Celular
                     <input name="phone" value="${escapeHtml(student.phone || '')}" placeholder="Ej: 7xxxxxxx">
