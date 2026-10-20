@@ -1306,7 +1306,7 @@ async function renderEvaluations() {
                                 <option value="firmas">Firmas</option>
                             </select>
                         </label>
-                        <label id="maxSigLabel" style="display:none;">Maximo de firmas <input id="maxSigInput" name="max_signatures" type="number" min="1" max="100" step="1" placeholder="1-100"></label>
+
                         <button class="button primary">Crear categoria</button>
                     </form>
                     <div id="categoriesBox" class="list-panel"></div>
@@ -1328,14 +1328,7 @@ async function renderEvaluations() {
         </section>
     `;
 
-    document.getElementById('categoryTypeSelect').addEventListener('change', (e) => {
-        const isF = e.target.value === 'firmas';
-        const label = document.getElementById('maxSigLabel');
-        const input = document.getElementById('maxSigInput');
-        label.style.display = isF ? '' : 'none';
-        input.required = isF;
-        if (!isF) input.value = '';
-    });
+    // No extra listener needed for category type — max is computed dynamically
     document.getElementById('termForm').addEventListener('submit', submitTerm);
     document.getElementById('categoryForm').addEventListener('submit', submitCategory);
     document.getElementById('evaluationForm').addEventListener('submit', submitEvaluation);
@@ -1474,7 +1467,7 @@ async function refreshEvaluationStructure() {
             <tbody>${categories.map((category) => `
                 <tr id="category-row-${category.id}">
                     <td><strong>${escapeHtml(category.name)}</strong></td>
-                    <td>${category.category_type === 'firmas' ? `Firmas (max. ${category.max_signatures})` : 'Notas'}</td>
+                    <td>${category.category_type === 'firmas' ? 'Firmas (max. dinámico)' : 'Notas'}</td>
                     <td>${category.weight_percentage}%</td>
                     <td style="text-align: right; white-space: nowrap;">
                         <button class="button secondary small" onclick="editCategoryInline(${category.id})">Editar</button>
@@ -1515,7 +1508,6 @@ window.editCategoryInline = function(id) {
             <div style="display: flex; align-items: center; gap: 4px;">
                 <input type="number" class="edit-input" id="edit-category-weight-${id}" value="${category.weight_percentage}" min="0.01" max="100" step="0.01" style="width: 80px;" required>%
             </div>
-            ${isFirmas ? `<div style="margin-top:4px;"><label style="font-size:0.85em;">Max. firmas <input type="number" class="edit-input" id="edit-category-maxsig-${id}" value="${category.max_signatures}" min="1" max="100" step="1" style="width:60px;"></label></div>` : ''}
         </td>
         <td style="text-align: right; white-space: nowrap;">
             <button class="button primary small" onclick="saveCategoryEdit(${id})">Guardar</button>
@@ -1527,7 +1519,6 @@ window.editCategoryInline = function(id) {
 window.saveCategoryEdit = async function(id) {
     const nameInput = document.getElementById(`edit-category-name-${id}`);
     const weightInput = document.getElementById(`edit-category-weight-${id}`);
-    const maxSigInput = document.getElementById(`edit-category-maxsig-${id}`);
 
     const name = nameInput.value.trim();
     const weight_percentage = Number.parseFloat(weightInput.value);
@@ -1544,15 +1535,6 @@ window.saveCategoryEdit = async function(id) {
     }
 
     const body = { name, weight_percentage };
-    if (maxSigInput) {
-        const maxVal = Number.parseInt(maxSigInput.value, 10);
-        if (!Number.isInteger(maxVal) || maxVal < 1 || maxVal > 100) {
-            toast('El maximo de firmas debe ser un entero entre 1 y 100');
-            maxSigInput.focus();
-            return;
-        }
-        body.max_signatures = maxVal;
-    }
 
     try {
         await requestJson(`/api/categories/${id}`, {
@@ -1600,24 +1582,11 @@ async function submitCategory(event) {
     const data = Object.fromEntries(new FormData(event.target));
     data.assignment_id = document.getElementById('evaluationAssignment').value;
     data.term_id = document.getElementById('evaluationTerm').value;
-
-    if (data.category_type === 'firmas') {
-        const maxVal = Number.parseInt(data.max_signatures, 10);
-        if (!Number.isInteger(maxVal) || maxVal < 1 || maxVal > 100) {
-            toast('El maximo de firmas debe ser un entero entre 1 y 100');
-            return;
-        }
-        data.max_signatures = maxVal;
-    } else {
-        delete data.max_signatures;
-    }
+    delete data.max_signatures; // max es dinamico, no se configura manualmente
 
     await requestJson('/api/categories', { method: 'POST', body: JSON.stringify(data) });
     toast('Categoria creada');
     event.target.reset();
-    // Ocultar campo max_signatures al resetear
-    document.getElementById('maxSigLabel').style.display = 'none';
-    document.getElementById('maxSigInput').required = false;
     await refreshEvaluationStructure();
 }
 
@@ -1758,12 +1727,11 @@ function renderGradebookTable(gradebook) {
                             <td><strong>${escapeHtml(student.full_name)}</strong></td>
                             ${evaluations.map((evaluation) => {
                                 const isFirmas = evaluation.category_type === 'firmas';
-                                const maxVal = isFirmas ? (evaluation.max_signatures || 1) : 100;
                                 const stepVal = isFirmas ? '1' : '0.01';
-                                const placeholder = isFirmas ? `0-${maxVal}` : '0-100';
+                                const placeholder = isFirmas ? 'Firmas' : '0-100';
                                 return `
                                 <td>
-                                    <input class="grade-input" data-grade-input data-student="${student.id}" data-evaluation="${evaluation.evaluation_id}" data-is-firmas="${isFirmas ? '1' : '0'}" type="number" min="0" max="${maxVal}" step="${stepVal}" placeholder="${placeholder}" value="${gradeMap.get(`${student.id}_${evaluation.evaluation_id}`) ?? ''}">
+                                    <input class="grade-input" data-grade-input data-student="${student.id}" data-evaluation="${evaluation.evaluation_id}" data-is-firmas="${isFirmas ? '1' : '0'}" type="number" min="0" step="${stepVal}" placeholder="${placeholder}" value="${gradeMap.get(`${student.id}_${evaluation.evaluation_id}`) ?? ''}">
                                 </td>`;
                             }).join('')}
                             <td><strong data-internal="${student.id}">0.00</strong></td>
@@ -1780,16 +1748,15 @@ function renderGradebookTable(gradebook) {
 async function saveGrade(event) {
     const input = event.target;
     const isFirmas = input.dataset.isFirmas === '1';
-    const maxVal = Number(input.max) || 100;
     const raw = input.value === '' ? 0 : Number(input.value);
     const score = isFirmas ? Math.round(raw) : raw;
-    if (!Number.isFinite(score) || score < 0 || score > maxVal) {
-        toast(isFirmas ? `Las firmas deben ser un entero entre 0 y ${maxVal}` : 'La nota debe estar entre 0 y 100');
+    if (!Number.isFinite(score) || score < 0) {
+        toast(isFirmas ? 'Las firmas deben ser un numero entero mayor o igual a 0' : 'La nota debe estar entre 0 y 100');
         input.focus();
         return;
     }
-    if (isFirmas && !Number.isInteger(score)) {
-        toast(`Las firmas deben ser un numero entero`);
+    if (!isFirmas && score > 100) {
+        toast('La nota debe estar entre 0 y 100');
         input.focus();
         return;
     }
@@ -1817,24 +1784,40 @@ function recalculateGradeRows() {
             categories[evaluation.category_id] = {
                 weight: Number(evaluation.weight_percentage),
                 category_type: evaluation.category_type || 'nota',
-                max_signatures: Number(evaluation.max_signatures) || 1,
                 evaluations: []
             };
         }
         categories[evaluation.category_id].evaluations.push(evaluation);
     });
 
+    // Para categorias de tipo firmas, calcular el maximo dinamico (el estudiante con mas firmas = 100%)
+    const firmasMaxMap = {};
+    Object.entries(categories).forEach(([catId, category]) => {
+        if (category.category_type !== 'firmas') return;
+        let maxFirmas = 0;
+        gradebook.students.forEach((s) => {
+            const total = category.evaluations.reduce((acc, ev) => {
+                const inp = document.querySelector(`[data-student="${s.id}"][data-evaluation="${ev.evaluation_id}"]`);
+                const v = Number(inp?.value || 0);
+                return acc + (Number.isFinite(v) ? v : 0);
+            }, 0);
+            if (total > maxFirmas) maxFirmas = total;
+        });
+        firmasMaxMap[catId] = maxFirmas > 0 ? maxFirmas : 1; // evitar division por 0
+    });
+
     return gradebook.students.map((student) => {
         let internal = 0;
-        Object.values(categories).forEach((category) => {
+        Object.entries(categories).forEach(([catId, category]) => {
             let perc = 0;
             if (category.category_type === 'firmas') {
+                const dynamicMax = firmasMaxMap[catId];
                 const totalFirmas = category.evaluations.reduce((total, evaluation) => {
                     const input = document.querySelector(`[data-student="${student.id}"][data-evaluation="${evaluation.evaluation_id}"]`);
                     const score = Number(input?.value || 0);
                     return total + (Number.isFinite(score) ? score : 0);
                 }, 0);
-                perc = Math.min(totalFirmas / category.max_signatures, 1) * 100;
+                perc = Math.min(totalFirmas / dynamicMax, 1) * 100;
             } else {
                 const sum = category.evaluations.reduce((total, evaluation) => {
                     const input = document.querySelector(`[data-student="${student.id}"][data-evaluation="${evaluation.evaluation_id}"]`);
@@ -1995,23 +1978,38 @@ function calculateReportRows(gradebook) {
             categories[evaluation.category_id] = {
                 weight: Number(evaluation.weight_percentage),
                 category_type: evaluation.category_type || 'nota',
-                max_signatures: Number(evaluation.max_signatures) || 1,
                 evaluations: []
             };
         }
         categories[evaluation.category_id].evaluations.push(evaluation);
     });
 
+    // Maximo dinamico para firmas: el estudiante con mas firmas define el 100%
+    const firmasMaxMap = {};
+    Object.entries(categories).forEach(([catId, category]) => {
+        if (category.category_type !== 'firmas') return;
+        let maxFirmas = 0;
+        gradebook.students.forEach((s) => {
+            const total = category.evaluations.reduce((acc, ev) => {
+                const score = gradeMap.get(`${s.id}_${ev.evaluation_id}`);
+                return acc + (Number.isFinite(score) ? score : 0);
+            }, 0);
+            if (total > maxFirmas) maxFirmas = total;
+        });
+        firmasMaxMap[catId] = maxFirmas > 0 ? maxFirmas : 1;
+    });
+
     return gradebook.students.map((student) => {
         let internal = 0;
-        Object.values(categories).forEach((category) => {
+        Object.entries(categories).forEach(([catId, category]) => {
             let perc = 0;
             if (category.category_type === 'firmas') {
+                const dynamicMax = firmasMaxMap[catId];
                 const totalFirmas = category.evaluations.reduce((total, evaluation) => {
                     const score = gradeMap.get(`${student.id}_${evaluation.evaluation_id}`);
                     return total + (Number.isFinite(score) ? score : 0);
                 }, 0);
-                perc = Math.min(totalFirmas / category.max_signatures, 1) * 100;
+                perc = Math.min(totalFirmas / dynamicMax, 1) * 100;
             } else {
                 const sum = category.evaluations.reduce((total, evaluation) => {
                     const score = gradeMap.get(`${student.id}_${evaluation.evaluation_id}`);

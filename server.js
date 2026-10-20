@@ -640,14 +640,6 @@ app.post('/api/categories', async (req, res) => {
             return res.status(400).json({ error: 'Grupo-materia, parcial, nombre y porcentaje son obligatorios' });
         }
 
-        let parsedMax = null;
-        if (catType === 'firmas') {
-            parsedMax = Number.parseInt(max_signatures, 10);
-            if (!Number.isInteger(parsedMax) || parsedMax < 1 || parsedMax > 100) {
-                return res.status(400).json({ error: 'El maximo de firmas debe ser un entero entre 1 y 100' });
-            }
-        }
-
         connection = await pool.getConnection();
         const [[total]] = await connection.query(
             'SELECT COALESCE(SUM(weight_percentage), 0) AS total FROM evaluation_categories WHERE assignment_id = ? AND term_id = ?',
@@ -660,7 +652,7 @@ app.post('/api/categories', async (req, res) => {
 
         const [result] = await connection.query(
             'INSERT INTO evaluation_categories (assignment_id, term_id, name, weight_percentage, category_type, max_signatures) VALUES (?, ?, ?, ?, ?, ?)',
-            [assignmentId, termId, name.trim(), weight, catType, parsedMax]
+            [assignmentId, termId, name.trim(), weight, catType, null]
         );
 
         // Para categorias de firmas se crea automaticamente la evaluacion 'Firmas'
@@ -710,33 +702,9 @@ app.put('/api/categories/:id', async (req, res) => {
             return res.status(400).json({ error: 'La suma de categorias del parcial no puede pasar de 100%' });
         }
 
-        let newMaxSignatures = category.max_signatures;
-        if (category.category_type === 'firmas') {
-            const parsedMax = Number.parseInt(max_signatures, 10);
-            if (!Number.isInteger(parsedMax) || parsedMax < 1 || parsedMax > 100) {
-                return res.status(400).json({ error: 'El maximo de firmas debe ser un entero entre 1 y 100' });
-            }
-            if (parsedMax < category.max_signatures) {
-                // Validar que no haya notas mayores al nuevo max
-                const [[maxScore]] = await connection.query(
-                    `SELECT COALESCE(MAX(g.score),0) AS max_score
-                     FROM grades g
-                     JOIN evaluations e ON g.evaluation_id = e.id
-                     WHERE e.category_id = ?`,
-                    [id]
-                );
-                if (Number(maxScore.max_score) > parsedMax) {
-                    return res.status(400).json({
-                        error: `No se puede reducir el maximo a ${parsedMax} porque existen calificaciones de hasta ${maxScore.max_score} firmas`
-                    });
-                }
-            }
-            newMaxSignatures = parsedMax;
-        }
-
         await connection.query(
-            'UPDATE evaluation_categories SET name = ?, weight_percentage = ?, max_signatures = ? WHERE id = ?',
-            [name.trim(), weight, newMaxSignatures, id]
+            'UPDATE evaluation_categories SET name = ?, weight_percentage = ? WHERE id = ?',
+            [name.trim(), weight, id]
         );
 
         res.json({ message: 'Categoria actualizada con exito' });
@@ -1025,11 +993,11 @@ app.post('/api/grades', async (req, res) => {
 
         let scoreToSave;
         if (evalInfo.category_type === 'firmas') {
+            // El maximo es dinamico (calculado en el frontend), solo validamos entero >= 0
             const rawScore = Number(score);
-            const maxSig = Number(evalInfo.max_signatures);
-            if (!Number.isInteger(rawScore) || rawScore < 0 || rawScore > maxSig) {
+            if (!Number.isInteger(rawScore) || rawScore < 0) {
                 return res.status(400).json({
-                    error: `La cantidad de firmas debe ser un numero entero entre 0 y ${maxSig}`
+                    error: 'La cantidad de firmas debe ser un numero entero mayor o igual a 0'
                 });
             }
             scoreToSave = rawScore;
