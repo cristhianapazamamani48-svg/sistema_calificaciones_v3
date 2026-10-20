@@ -204,12 +204,24 @@ async function initializeDatabase() {
                 term_id INT NOT NULL,
                 name VARCHAR(150) NOT NULL,
                 weight_percentage DECIMAL(5,2) NOT NULL,
+                category_type ENUM('nota', 'firmas') NOT NULL DEFAULT 'nota',
+                max_signatures INT NULL,
                 is_closed BOOLEAN NOT NULL DEFAULT FALSE,
                 UNIQUE KEY uq_assignment_term_category (assignment_id, term_id, name),
                 FOREIGN KEY (assignment_id) REFERENCES group_subject_assignments(id) ON DELETE CASCADE,
                 FOREIGN KEY (term_id) REFERENCES terms(id) ON DELETE CASCADE
             )
         `);
+
+        // Migración segura: category_type y max_signatures para tablas ya existentes
+        const [catTypeCols] = await connection.query("SHOW COLUMNS FROM evaluation_categories LIKE 'category_type'");
+        if (catTypeCols.length === 0) {
+            await connection.query("ALTER TABLE evaluation_categories ADD COLUMN category_type ENUM('nota','firmas') NOT NULL DEFAULT 'nota' AFTER weight_percentage");
+        }
+        const [maxSigCols] = await connection.query("SHOW COLUMNS FROM evaluation_categories LIKE 'max_signatures'");
+        if (maxSigCols.length === 0) {
+            await connection.query("ALTER TABLE evaluation_categories ADD COLUMN max_signatures INT NULL AFTER category_type");
+        }
 
         await connection.query(`
             CREATE TABLE IF NOT EXISTS evaluations (
@@ -308,7 +320,7 @@ async function initializeDatabase() {
             `, [careerId, name, index + 1, careerId, name]);
         }
 
-        console.log('Base de datos V3 lista (con campo CI en students).');
+        console.log('Base de datos V3 lista (CI en students, category_type y max_signatures en evaluation_categories).');
     } catch (error) {
         console.error('Error inicializando base de datos V3:', error);
         throw error;
