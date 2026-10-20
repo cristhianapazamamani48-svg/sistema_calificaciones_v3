@@ -630,13 +630,22 @@ app.get('/api/categories', async (req, res) => {
 app.post('/api/categories', async (req, res) => {
     let connection;
     try {
-        const { assignment_id, term_id, name, weight_percentage } = req.body;
+        const { assignment_id, term_id, name, weight_percentage, category_type, max_signatures } = req.body;
         const assignmentId = parseId(assignment_id);
         const termId = parseId(term_id);
         const weight = Number.parseFloat(weight_percentage);
+        const catType = category_type === 'firmas' ? 'firmas' : 'nota';
 
         if (!assignmentId || !termId || !requiredText(name) || !Number.isFinite(weight) || weight <= 0) {
             return res.status(400).json({ error: 'Grupo-materia, parcial, nombre y porcentaje son obligatorios' });
+        }
+
+        let parsedMax = null;
+        if (catType === 'firmas') {
+            parsedMax = Number.parseInt(max_signatures, 10);
+            if (!Number.isInteger(parsedMax) || parsedMax < 1 || parsedMax > 100) {
+                return res.status(400).json({ error: 'El maximo de firmas debe ser un entero entre 1 y 100' });
+            }
         }
 
         connection = await pool.getConnection();
@@ -650,9 +659,18 @@ app.post('/api/categories', async (req, res) => {
         }
 
         const [result] = await connection.query(
-            'INSERT INTO evaluation_categories (assignment_id, term_id, name, weight_percentage) VALUES (?, ?, ?, ?)',
-            [assignmentId, termId, name.trim(), weight]
+            'INSERT INTO evaluation_categories (assignment_id, term_id, name, weight_percentage, category_type, max_signatures) VALUES (?, ?, ?, ?, ?, ?)',
+            [assignmentId, termId, name.trim(), weight, catType, parsedMax]
         );
+
+        // Para categorias de firmas se crea automaticamente la evaluacion 'Firmas'
+        if (catType === 'firmas') {
+            await connection.query(
+                'INSERT INTO evaluations (category_id, name) VALUES (?, ?)',
+                [result.insertId, 'Firmas']
+            );
+        }
+
         res.status(201).json({ id: result.insertId, message: 'Categoria creada' });
     } catch (error) {
         console.error(error);
@@ -667,7 +685,7 @@ app.put('/api/categories/:id', async (req, res) => {
     let connection;
     try {
         const id = parseId(req.params.id);
-        const { name, weight_percentage } = req.body;
+        const { name, weight_percentage, max_signatures } = req.body;
         const weight = Number.parseFloat(weight_percentage);
 
         if (!id || !requiredText(name) || !Number.isFinite(weight) || weight <= 0) {
@@ -676,7 +694,7 @@ app.put('/api/categories/:id', async (req, res) => {
 
         connection = await pool.getConnection();
         const [[category]] = await connection.query(
-            'SELECT assignment_id, term_id FROM evaluation_categories WHERE id = ?',
+            'SELECT assignment_id, term_id, category_type, max_signatures FROM evaluation_categories WHERE id = ?',
             [id]
         );
         if (!category) {
@@ -692,9 +710,33 @@ app.put('/api/categories/:id', async (req, res) => {
             return res.status(400).json({ error: 'La suma de categorias del parcial no puede pasar de 100%' });
         }
 
+        let newMaxSignatures = category.max_signatures;
+        if (category.category_type === 'firmas') {
+            const parsedMax = Number.parseInt(max_signatures, 10);
+            if (!Number.isInteger(parsedMax) || parsedMax < 1 || parsedMax > 100) {
+                return res.status(400).json({ error: 'El maximo de firmas debe ser un entero entre 1 y 100' });
+            }
+            if (parsedMax < category.max_signatures) {
+                // Validar que no haya notas mayores al nuevo max
+                const [[maxScore]] = await connection.query(
+                    `SELECT COALESCE(MAX(g.score),0) AS max_score
+                     FROM grades g
+                     JOIN evaluations e ON g.evaluation_id = e.id
+                     WHERE e.category_id = ?`,
+                    [id]
+                );
+                if (Number(maxScore.max_score) > parsedMax) {
+                    return res.status(400).json({
+                        error: `No se puede reducir el maximo a ${parsedMax} porque existen calificaciones de hasta ${maxScore.max_score} firmas`
+                    });
+                }
+            }
+            newMaxSignatures = parsedMax;
+        }
+
         await connection.query(
-            'UPDATE evaluation_categories SET name = ?, weight_percentage = ? WHERE id = ?',
-            [name.trim(), weight, id]
+            'UPDATE evaluation_categories SET name = ?, weight_percentage = ?, max_signatures = ? WHERE id = ?',
+            [name.trim(), weight, newMaxSignatures, id]
         );
 
         res.json({ message: 'Categoria actualizada con exito' });
@@ -748,7 +790,7 @@ app.post('/api/categories/clone', async (req, res) => {
         await connection.beginTransaction();
 
         const [srcCategories] = await connection.query(
-            'SELECT id, name, weight_percentage FROM evaluation_categories WHERE assignment_id = ? AND term_id = ?',
+            'SELECT id, name, weight_percentage, category_type, max_signatures FROM evaluation_categories WHERE assignment_id = ? AND term_id = ?',
             [srcAssignId, srcTermId]
         );
 
@@ -763,22 +805,29 @@ app.post('/api/categories/clone', async (req, res) => {
         );
 
         for (const category of srcCategories) {
+            const catType = category.category_type || 'nota';
             const [catResult] = await connection.query(
-                'INSERT INTO evaluation_categories (assignment_id, term_id, name, weight_percentage) VALUES (?, ?, ?, ?)',
-                [tgtAssignId, tgtTermId, category.name, category.weight_percentage]
+                'INSERT INTO evaluation_categories (assignment_id, term_id, name, weight_percentage, category_type, max_signatures) VALUES (?, ?, ?, ?, ?, ?)',
+                [tgtAssignId, tgtTermId, category.name, category.weight_percentage, catType, category.max_signatures || null]
             );
             const newCategoryId = catResult.insertId;
 
-            const [srcEvaluations] = await connection.query(
-                'SELECT name, status FROM evaluations WHERE category_id = ?',
-                [category.id]
-            );
-
-            for (const evaluation of srcEvaluations) {
+            if (catType === 'firmas') {
                 await connection.query(
-                    'INSERT INTO evaluations (category_id, name, status) VALUES (?, ?, ?)',
-                    [newCategoryId, evaluation.name, evaluation.status]
+                    'INSERT INTO evaluations (category_id, name) VALUES (?, ?)',
+                    [newCategoryId, 'Firmas']
                 );
+            } else {
+                const [srcEvaluations] = await connection.query(
+                    'SELECT name, status FROM evaluations WHERE category_id = ?',
+                    [category.id]
+                );
+                for (const evaluation of srcEvaluations) {
+                    await connection.query(
+                        'INSERT INTO evaluations (category_id, name, status) VALUES (?, ?, ?)',
+                        [newCategoryId, evaluation.name, evaluation.status]
+                    );
+                }
             }
         }
 
@@ -822,6 +871,8 @@ app.get('/api/evaluations', async (req, res) => {
                 e.*,
                 ec.name AS category_name,
                 ec.weight_percentage,
+                ec.category_type,
+                ec.max_signatures,
                 ec.term_id,
                 ec.assignment_id
             FROM evaluations e
@@ -849,6 +900,17 @@ app.post('/api/evaluations', async (req, res) => {
         }
 
         connection = await pool.getConnection();
+
+        // Bloquear si la categoria es de tipo firmas
+        const [[cat]] = await connection.query(
+            'SELECT category_type FROM evaluation_categories WHERE id = ? LIMIT 1',
+            [categoryId]
+        );
+        if (!cat) return res.status(404).json({ error: 'Categoria no encontrada' });
+        if (cat.category_type === 'firmas') {
+            return res.status(400).json({ error: 'No se pueden crear evaluaciones adicionales en una categoria de firmas' });
+        }
+
         const [result] = await connection.query(
             'INSERT INTO evaluations (category_id, name) VALUES (?, ?)',
             [categoryId, name.trim()]
@@ -912,7 +974,9 @@ app.get('/api/gradebook', async (req, res) => {
                 e.name AS evaluation_name,
                 ec.id AS category_id,
                 ec.name AS category_name,
-                ec.weight_percentage
+                ec.weight_percentage,
+                ec.category_type,
+                ec.max_signatures
             FROM evaluations e
             JOIN evaluation_categories ec ON e.category_id = ec.id
             WHERE ec.assignment_id = ? AND ec.term_id = ?
@@ -942,18 +1006,46 @@ app.post('/api/grades', async (req, res) => {
         const { student_id, evaluation_id, score } = req.body;
         const studentId = parseId(student_id);
         const evaluationId = parseId(evaluation_id);
-        const parsedScore = Number.parseFloat(score);
 
-        if (!studentId || !evaluationId || !Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > 100) {
-            return res.status(400).json({ error: 'La nota debe estar entre 0 y 100' });
+        if (!studentId || !evaluationId) {
+            return res.status(400).json({ error: 'student_id y evaluation_id son obligatorios' });
         }
 
         connection = await pool.getConnection();
+
+        // Determinar el tipo de categoria para validar el rango correcto
+        const [[evalInfo]] = await connection.query(
+            `SELECT ec.category_type, ec.max_signatures
+             FROM evaluations e
+             JOIN evaluation_categories ec ON e.category_id = ec.id
+             WHERE e.id = ? LIMIT 1`,
+            [evaluationId]
+        );
+        if (!evalInfo) return res.status(404).json({ error: 'Evaluacion no encontrada' });
+
+        let scoreToSave;
+        if (evalInfo.category_type === 'firmas') {
+            const rawScore = Number(score);
+            const maxSig = Number(evalInfo.max_signatures);
+            if (!Number.isInteger(rawScore) || rawScore < 0 || rawScore > maxSig) {
+                return res.status(400).json({
+                    error: `La cantidad de firmas debe ser un numero entero entre 0 y ${maxSig}`
+                });
+            }
+            scoreToSave = rawScore;
+        } else {
+            const parsedScore = Number.parseFloat(score);
+            if (!Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > 100) {
+                return res.status(400).json({ error: 'La nota debe estar entre 0 y 100' });
+            }
+            scoreToSave = parsedScore;
+        }
+
         await connection.query(`
             INSERT INTO grades (student_id, evaluation_id, score)
             VALUES (?, ?, ?)
             ON DUPLICATE KEY UPDATE score = VALUES(score)
-        `, [studentId, evaluationId, parsedScore]);
+        `, [studentId, evaluationId, scoreToSave]);
 
         res.json({ success: true, message: 'Nota guardada' });
     } catch (error) {
