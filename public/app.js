@@ -1870,7 +1870,7 @@ async function renderReports() {
     content.innerHTML = `
         ${pageHeader('Reportes', 'Genera resumen imprimible y archivo CSV desde las calificaciones registradas.', 'Reportes academicos')}
         <article class="card">
-            <div class="card-header"><h3>Generador de reportes</h3><div class="actions"><button id="downloadPdfReport" class="button primary" type="button">⬇ Descargar PDF</button><button id="printReport" class="button secondary" type="button">🖨 Imprimir</button><button id="exportReport" class="button secondary" type="button">Exportar CSV</button></div></div>
+            <div class="card-header"><h3>Generador de reportes</h3><div class="actions"><button id="printReport" class="button primary" type="button">🖨 Imprimir / Guardar PDF</button><button id="exportReport" class="button secondary" type="button">Exportar CSV</button></div></div>
             <div class="card-body">
                 <div class="form-row">
                     <label>Grupo
@@ -1899,7 +1899,6 @@ async function renderReports() {
     document.getElementById('loadReport').addEventListener('click', loadReport);
     document.getElementById('printReport').addEventListener('click', () => window.print());
     document.getElementById('exportReport').addEventListener('click', exportReportCsv);
-    document.getElementById('downloadPdfReport').addEventListener('click', downloadReportPdf);
 
     updateSubjectOptions('reportGroup', 'reportAssignment');
     await refreshReportTerms();
@@ -2108,113 +2107,7 @@ function exportReportCsv() {
     ]);
 }
 
-async function downloadReportPdf() {
-    const report = window.currentReport;
-    if (!report) {
-        toast('Primero genera un reporte');
-        return;
-    }
 
-    const btn = document.getElementById('downloadPdfReport');
-    const originalText = btn.textContent;
-    btn.textContent = 'Generando vista previa...';
-    btn.disabled = true;
-
-    const element = document.getElementById('reportBox');
-    const filename = `reporte_${report.context.group_code}_${report.context.term_name}.pdf`
-        .replace(/[\/\s:*?"<>|]+/g, '_');
-
-    const opt = {
-        margin:      [0.4, 0.8, 0.6, 0.8], // cm: 4mm top, 8mm right, 6mm bottom, 8mm left
-        filename,
-        image:       { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF:       { unit: 'cm', format: 'a4', orientation: 'portrait' },
-        pagebreak:   { mode: 'css' }
-    };
-
-    try {
-        // Aplicar clase para exportación compacta y sin tarjetas de stats
-        element.classList.add('pdf-export');
-
-        let previewUrl = '';
-        if (typeof window.html2canvas === 'function') {
-            const canvas = await window.html2canvas(element, { scale: 1.8, useCORS: true, logging: false });
-            if (canvas && typeof canvas.toDataURL === 'function') {
-                previewUrl = canvas.toDataURL('image/jpeg', 0.88);
-            }
-        }
-        
-        if (!previewUrl && typeof html2pdf === 'function') {
-            const result = await html2pdf().set(opt).from(element).outputImg('datauristring');
-            previewUrl = typeof result === 'string' ? result : (result && result.src ? result.src : '');
-        }
-
-        element.classList.remove('pdf-export');
-
-        if (!previewUrl) {
-            throw new Error('No se pudo generar la imagen para la vista previa');
-        }
-
-        // Mostrar modal de vista previa antes de descargar
-        const overlay = document.createElement('div');
-        overlay.className = 'modal-overlay';
-        overlay.style.cssText = 'z-index: 1000; align-items: center;';
-        overlay.innerHTML = `
-            <div style="background: white; border-radius: 16px; box-shadow: 0 25px 60px rgba(15, 23, 42, 0.35); width: min(720px, 95vw); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; animation: modalIn 0.2s ease;">
-                <div style="padding: 16px 22px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; background: #ffffff;">
-                    <div>
-                        <strong style="font-size: 1.05rem; color: #0f172a; display: block;">Vista previa del PDF</strong>
-                        <span style="font-size: 0.78rem; color: #64748b;">Revisa el diseño antes de guardar el archivo</span>
-                    </div>
-                    <button id="closePdfPreview" style="width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background: transparent; cursor: pointer; font-size: 1.3rem; line-height: 1; display: grid; place-items: center; color: #64748b;">&times;</button>
-                </div>
-                <div style="overflow-y: auto; padding: 20px; background: #0f172a08; flex: 1; display: flex; justify-content: center; align-items: flex-start;">
-                    <div style="background: white; padding: 6px; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); max-width: 100%;">
-                        <img src="${previewUrl}" alt="Vista previa del PDF" style="display: block; width: 100%; height: auto; border-radius: 3px;">
-                    </div>
-                </div>
-                <div style="padding: 14px 22px; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; background: #ffffff;">
-                    <button id="cancelPdfDownload" class="button secondary">Cancelar</button>
-                    <button id="confirmPdfDownload" class="button primary" style="display: inline-flex; align-items: center; gap: 6px;">
-                        <span>⬇</span> Descargar PDF
-                    </button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(overlay);
-
-        const closeModal = () => {
-            if (document.body.contains(overlay)) {
-                document.body.removeChild(overlay);
-            }
-        };
-
-        document.getElementById('closePdfPreview').addEventListener('click', closeModal);
-        document.getElementById('cancelPdfDownload').addEventListener('click', closeModal);
-        document.getElementById('confirmPdfDownload').addEventListener('click', async () => {
-            const confirmBtn = document.getElementById('confirmPdfDownload');
-            confirmBtn.textContent = 'Descargando...';
-            confirmBtn.disabled = true;
-            try {
-                element.classList.add('pdf-export');
-                await html2pdf().set(opt).from(element).save();
-                toast('PDF descargado correctamente');
-            } catch (err) {
-                toast('Error al descargar: ' + err.message);
-            } finally {
-                element.classList.remove('pdf-export');
-                closeModal();
-            }
-        });
-    } catch (error) {
-        element.classList.remove('pdf-export');
-        toast('Error al generar la vista previa: ' + error.message);
-    } finally {
-        btn.textContent = originalText;
-        btn.disabled = false;
-    }
-}
 
 
 function downloadCsv(filename, rows) {

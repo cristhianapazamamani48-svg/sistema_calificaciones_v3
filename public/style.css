@@ -1240,87 +1240,9 @@ td.actions-cell {
     }
 }
 
-/* ── @page: márgenes del documento impreso (margen superior reducido) ── */
+/* ── @page: márgenes del documento impreso ── */
 @page {
-    margin: 0.6cm 1.2cm 0.8cm 1.2cm;
-}
-
-/* ── Modo exportación PDF directo (html2pdf / html2canvas) ── */
-.report-sheet.pdf-export {
-    margin: 0 !important;
-    padding: 0 !important;
-    border: none !important;
-    box-shadow: none !important;
-    background: white !important;
-}
-
-.report-sheet.pdf-export .report-stats {
-    display: none !important;
-}
-
-.report-sheet.pdf-export .report-letterhead {
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-.report-sheet.pdf-export .report-logo-img {
-    height: 36px !important;
-}
-
-.report-sheet.pdf-export .report-doc-title {
-    font-size: 0.95rem !important;
-    margin: 0 0 2px !important;
-}
-
-.report-sheet.pdf-export .report-doc-sub {
-    font-size: 0.72rem !important;
-    margin: 0 !important;
-}
-
-.report-sheet.pdf-export .report-letterhead-divider {
-    margin: 6px 0 8px !important;
-    height: 2px !important;
-}
-
-.report-sheet.pdf-export .report-context-grid {
-    padding: 6px 10px !important;
-    margin-bottom: 8px !important;
-    gap: 3px 8px !important;
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-}
-
-.report-sheet.pdf-export .report-ctx-label {
-    font-size: 0.6rem !important;
-}
-
-.report-sheet.pdf-export .report-ctx-value {
-    font-size: 0.76rem !important;
-}
-
-.report-sheet.pdf-export .report-table {
-    margin-top: 0 !important;
-}
-
-.report-sheet.pdf-export .report-table th {
-    padding: 4px 6px !important;
-    font-size: 0.76rem !important;
-}
-
-.report-sheet.pdf-export .report-table td {
-    padding: 4px 6px !important;
-    font-size: 0.76rem !important;
-}
-
-.report-sheet.pdf-export .report-table tr {
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-}
-
-.report-sheet.pdf-export .report-footer {
-    margin-top: 12px !important;
-    padding-top: 8px !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
+    margin: 0.8cm 1.2cm;
 }
 
 @media print {
@@ -1422,10 +1344,17 @@ td.actions-cell {
     .status-ok   { background: #dcfce7 !important; color: #15803d !important; }
     .status-warn { background: #fef9c3 !important; color: #a16207 !important; }
 
+    .report-table tr {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+    }
+
     /* Pie: compacto */
     .report-footer {
         padding-top: 10px;
         margin-top: 6px;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
     }
 
     .report-signature-line { width: 160px; }
