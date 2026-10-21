@@ -1866,7 +1866,7 @@ async function renderReports() {
     content.innerHTML = `
         ${pageHeader('Reportes', 'Genera resumen imprimible y archivo CSV desde las calificaciones registradas.', 'Reportes academicos')}
         <article class="card">
-            <div class="card-header"><h3>Generador de reportes</h3><div class="actions"><button id="printReport" class="button secondary" type="button">Imprimir / PDF</button><button id="exportReport" class="button primary" type="button">Exportar CSV</button></div></div>
+            <div class="card-header"><h3>Generador de reportes</h3><div class="actions"><button id="downloadPdfReport" class="button primary" type="button">⬇ Descargar PDF</button><button id="printReport" class="button secondary" type="button">🖨 Imprimir</button><button id="exportReport" class="button secondary" type="button">Exportar CSV</button></div></div>
             <div class="card-body">
                 <div class="form-row">
                     <label>Grupo
@@ -1895,6 +1895,7 @@ async function renderReports() {
     document.getElementById('loadReport').addEventListener('click', loadReport);
     document.getElementById('printReport').addEventListener('click', () => window.print());
     document.getElementById('exportReport').addEventListener('click', exportReportCsv);
+    document.getElementById('downloadPdfReport').addEventListener('click', downloadReportPdf);
 
     updateSubjectOptions('reportGroup', 'reportAssignment');
     await refreshReportTerms();
@@ -2100,6 +2101,51 @@ function exportReportCsv() {
         ['Estudiante', 'Nota 100', 'Nota oficial', 'Estado'],
         ...rows.map((row) => [row.student, row.internal.toFixed(2), row.official.toFixed(2), row.result])
     ]);
+}
+
+async function downloadReportPdf() {
+    const report = window.currentReport;
+    if (!report) {
+        toast('Primero genera un reporte');
+        return;
+    }
+
+    const btn = document.getElementById('downloadPdfReport');
+    const originalText = btn.textContent;
+    btn.textContent = 'Generando PDF...';
+    btn.disabled = true;
+
+    try {
+        const element = document.getElementById('reportBox');
+        const filename = `reporte_${report.context.group_code}_${report.context.term_name}.pdf`
+            .replace(/[\\/\s:*?"<>|]+/g, '_');
+
+        const opt = {
+            margin:       [1.2, 1.5, 1.2, 1.5], // cm: top, right, bottom, left
+            filename,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                removeContainer: true
+            },
+            jsPDF: {
+                unit: 'cm',
+                format: 'a4',
+                orientation: 'portrait'
+            },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        };
+
+        await html2pdf().set(opt).from(element).save();
+        toast('PDF descargado correctamente');
+    } catch (error) {
+        toast('Error al generar el PDF: ' + error.message);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
 }
 
 function downloadCsv(filename, rows) {

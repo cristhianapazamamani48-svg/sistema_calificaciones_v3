@@ -1240,10 +1240,9 @@ td.actions-cell {
     }
 }
 
-/* ── @page margin 0: elimina la URL/fecha del navegador al imprimir ── */
-/* Chrome/Firefox colocan la URL en el margen. Con margin:0 no hay espacio y desaparece. */
+/* ── @page: márgenes del documento impreso ── */
 @page {
-    margin: 0;
+    margin: 1.2cm 1.5cm;
 }
 
 @media print {
@@ -1275,7 +1274,7 @@ td.actions-cell {
     .report-sheet {
         border: 0;
         box-shadow: none;
-        padding: 1.1cm 1.4cm;   /* márgenes propios — reemplaza el @page margin */
+        padding: 0;
         border-radius: 0;
         font-size: 0.82rem;
     }
