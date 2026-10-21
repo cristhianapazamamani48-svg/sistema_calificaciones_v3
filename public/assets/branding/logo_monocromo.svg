@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 250" width="800" height="250">
+  <rect width="100%" height="100%" fill="#FFFFFF"/>
+  <g transform="translate(60, 65)">
+    <path d="M 20 20 L 55 60 L 20 100" fill="none" stroke="#000000" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 60 20 L 95 60 L 60 100" fill="none" stroke="#000000" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 4"/>
+    <circle cx="100" cy="100" r="7" fill="#000000"/>
+  </g>
+  <text x="210" y="118" font-family="'Plus Jakarta Sans', 'Inter', system-ui, sans-serif" font-weight="800" font-size="52" fill="#000000" letter-spacing="-1">ChrisCode</text>
+  <text x="212" y="158" font-family="'JetBrains Mono', monospace" font-weight="500" font-size="16" fill="#000000" letter-spacing="3">SOFTWARE ENGINEERING &amp; ARCHITECTURE</text>
+</svg>

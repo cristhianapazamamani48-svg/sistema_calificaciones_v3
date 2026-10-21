@@ -1930,43 +1930,111 @@ function renderReportSheet(gradebook) {
     const rows = calculateReportRows(gradebook);
     const approved = rows.filter((row) => row.result === 'Aprobado').length;
     const risk = rows.length - approved;
+    const approvedPct = rows.length > 0 ? Math.round((approved / rows.length) * 100) : 0;
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('es-BO', { year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = now.toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' });
 
     return `
-        <div class="report-header">
-            <div>
-                <h2>Instituto Tecnologico Infocal</h2>
-                <p>Reporte de calificaciones por parcial</p>
+        <!-- MEMBRETE / LETTERHEAD -->
+        <div class="report-letterhead">
+            <div class="report-letterhead-logo">
+                <img src="/assets/branding/logo_monocromo.svg" alt="ChrisCode" class="report-logo-img">
             </div>
-            <div class="report-meta">
-                <span>${new Date().toLocaleString()}</span>
-                <span>Nota minima: ${gradebook.context.passing_score}</span>
+            <div class="report-letterhead-info">
+                <p class="report-doc-title">Reporte de Calificaciones</p>
+                <p class="report-doc-sub">Docente: <strong>Cristhian Apaza Mamani</strong></p>
+                <p class="report-doc-sub">Fecha: ${dateStr} &nbsp;|&nbsp; ${timeStr}</p>
             </div>
         </div>
-        <div class="report-context">
-            <span><strong>Sede:</strong> ${escapeHtml(gradebook.context.campus_name)}</span>
-            <span><strong>Carrera:</strong> ${escapeHtml(gradebook.context.career_name)}</span>
-            <span><strong>Grupo:</strong> ${escapeHtml(gradebook.context.group_code)} - ${escapeHtml(gradebook.context.group_name)}</span>
-            <span><strong>Materia:</strong> ${escapeHtml(gradebook.context.subject_name)}</span>
-            <span><strong>Parcial:</strong> ${escapeHtml(gradebook.context.term_name)}</span>
-            <span><strong>Valor oficial:</strong> ${gradebook.context.term_percentage}%</span>
+        <div class="report-letterhead-divider"></div>
+
+        <!-- CONTEXTO -->
+        <div class="report-context-grid">
+            <div class="report-context-item">
+                <span class="report-ctx-label">Sede</span>
+                <span class="report-ctx-value">${escapeHtml(gradebook.context.campus_name)}</span>
+            </div>
+            <div class="report-context-item">
+                <span class="report-ctx-label">Carrera</span>
+                <span class="report-ctx-value">${escapeHtml(gradebook.context.career_name)}</span>
+            </div>
+            <div class="report-context-item">
+                <span class="report-ctx-label">Grupo</span>
+                <span class="report-ctx-value">${escapeHtml(gradebook.context.group_code)} — ${escapeHtml(gradebook.context.group_name)}</span>
+            </div>
+            <div class="report-context-item">
+                <span class="report-ctx-label">Materia</span>
+                <span class="report-ctx-value">${escapeHtml(gradebook.context.subject_name)}</span>
+            </div>
+            <div class="report-context-item">
+                <span class="report-ctx-label">Parcial</span>
+                <span class="report-ctx-value">${escapeHtml(gradebook.context.term_name)}</span>
+            </div>
+            <div class="report-context-item">
+                <span class="report-ctx-label">Valor oficial</span>
+                <span class="report-ctx-value">${gradebook.context.term_percentage}%</span>
+            </div>
+            <div class="report-context-item">
+                <span class="report-ctx-label">Nota mínima</span>
+                <span class="report-ctx-value">${gradebook.context.passing_score}</span>
+            </div>
         </div>
-        <div class="report-summary">
-            <div><strong>${rows.length}</strong><span>Estudiantes</span></div>
-            <div><strong>${approved}</strong><span>Aprobados</span></div>
-            <div><strong>${risk}</strong><span>En riesgo</span></div>
+
+        <!-- ESTADÍSTICAS RESUMEN -->
+        <div class="report-stats">
+            <div class="report-stat-card neutral">
+                <span class="report-stat-num">${rows.length}</span>
+                <span class="report-stat-label">Estudiantes</span>
+            </div>
+            <div class="report-stat-card ok">
+                <span class="report-stat-num">${approved}</span>
+                <span class="report-stat-label">Aprobados</span>
+            </div>
+            <div class="report-stat-card warn">
+                <span class="report-stat-num">${risk}</span>
+                <span class="report-stat-label">En riesgo</span>
+            </div>
+            <div class="report-stat-card info">
+                <span class="report-stat-num">${approvedPct}%</span>
+                <span class="report-stat-label">Aprobación</span>
+            </div>
         </div>
-        <table>
-            <thead><tr><th>Nro</th><th>Estudiante</th><th>Nota 100</th><th>Nota oficial</th><th>Estado</th></tr></thead>
-            <tbody>${rows.map((row, index) => `
+
+        <!-- TABLA DE NOTAS -->
+        <table class="report-table">
+            <thead>
                 <tr>
+                    <th>Nro</th>
+                    <th>Estudiante</th>
+                    <th>Nota / 100</th>
+                    <th>Nota oficial</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>${rows.map((row, index) => `
+                <tr class="${row.result === 'Aprobado' ? 'row-ok' : 'row-warn'}">
                     <td>${index + 1}</td>
                     <td><strong>${escapeHtml(row.student)}</strong></td>
                     <td>${row.internal.toFixed(2)}</td>
                     <td>${row.official.toFixed(2)}</td>
-                    <td>${row.result}</td>
+                    <td class="status-cell ${row.result === 'Aprobado' ? 'status-ok' : 'status-warn'}">${row.result}</td>
                 </tr>
             `).join('') || '<tr><td colspan="5">No hay estudiantes.</td></tr>'}</tbody>
         </table>
+
+        <!-- PIE DE FIRMA -->
+        <div class="report-footer">
+            <div class="report-signature-block">
+                <div class="report-signature-line"></div>
+                <p class="report-sig-name">Cristhian Apaza Mamani</p>
+                <p class="report-sig-role">Docente</p>
+            </div>
+            <div class="report-footer-brand">
+                <img src="/assets/branding/logo_simplificado.svg" alt="ChrisCode" class="report-footer-icon">
+                <span class="report-footer-powered">Sistema generado por <strong>ChrisCode</strong></span>
+            </div>
+        </div>
     `;
 }
 
