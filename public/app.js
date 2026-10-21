@@ -2137,16 +2137,24 @@ async function downloadReportPdf() {
         // Aplicar clase para exportación compacta y sin tarjetas de stats
         element.classList.add('pdf-export');
 
-        let previewUrl;
-        if (typeof html2canvas === 'function') {
-            const canvas = await html2canvas(element, { scale: 1.8, useCORS: true, logging: false });
-            previewUrl = canvas.toDataURL('image/jpeg', 0.88);
-        } else {
-            const canvas = await html2pdf().set(opt).from(element).toCanvas();
-            previewUrl = canvas.toDataURL('image/jpeg', 0.88);
+        let previewUrl = '';
+        if (typeof window.html2canvas === 'function') {
+            const canvas = await window.html2canvas(element, { scale: 1.8, useCORS: true, logging: false });
+            if (canvas && typeof canvas.toDataURL === 'function') {
+                previewUrl = canvas.toDataURL('image/jpeg', 0.88);
+            }
+        }
+        
+        if (!previewUrl && typeof html2pdf === 'function') {
+            const result = await html2pdf().set(opt).from(element).outputImg('datauristring');
+            previewUrl = typeof result === 'string' ? result : (result && result.src ? result.src : '');
         }
 
         element.classList.remove('pdf-export');
+
+        if (!previewUrl) {
+            throw new Error('No se pudo generar la imagen para la vista previa');
+        }
 
         // Mostrar modal de vista previa antes de descargar
         const overlay = document.createElement('div');
