@@ -1247,8 +1247,8 @@ td.actions-cell {
 
 /* ── Modo exportación PDF directo (html2pdf / html2canvas) ── */
 .report-sheet.pdf-export {
-    margin-top: 0 !important;
-    padding: 8px 16px !important;
+    margin: 0 !important;
+    padding: 0 !important;
     border: none !important;
     box-shadow: none !important;
     background: white !important;
@@ -1259,24 +1259,68 @@ td.actions-cell {
 }
 
 .report-sheet.pdf-export .report-letterhead {
-    margin-top: 0 !important;
-    padding-top: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.report-sheet.pdf-export .report-logo-img {
+    height: 36px !important;
+}
+
+.report-sheet.pdf-export .report-doc-title {
+    font-size: 0.95rem !important;
+    margin: 0 0 2px !important;
+}
+
+.report-sheet.pdf-export .report-doc-sub {
+    font-size: 0.72rem !important;
+    margin: 0 !important;
 }
 
 .report-sheet.pdf-export .report-letterhead-divider {
-    margin: 8px 0 12px !important;
+    margin: 6px 0 8px !important;
+    height: 2px !important;
 }
 
 .report-sheet.pdf-export .report-context-grid {
-    padding: 8px 12px !important;
-    margin-bottom: 10px !important;
-    gap: 4px 8px !important;
+    padding: 6px 10px !important;
+    margin-bottom: 8px !important;
+    gap: 3px 8px !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
 }
 
-.report-sheet.pdf-export .report-table th,
+.report-sheet.pdf-export .report-ctx-label {
+    font-size: 0.6rem !important;
+}
+
+.report-sheet.pdf-export .report-ctx-value {
+    font-size: 0.76rem !important;
+}
+
+.report-sheet.pdf-export .report-table {
+    margin-top: 0 !important;
+}
+
+.report-sheet.pdf-export .report-table th {
+    padding: 4px 6px !important;
+    font-size: 0.76rem !important;
+}
+
 .report-sheet.pdf-export .report-table td {
-    padding: 6px 8px !important;
-    font-size: 0.82rem !important;
+    padding: 4px 6px !important;
+    font-size: 0.76rem !important;
+}
+
+.report-sheet.pdf-export .report-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+
+.report-sheet.pdf-export .report-footer {
+    margin-top: 12px !important;
+    padding-top: 8px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
 }
 
 @media print {

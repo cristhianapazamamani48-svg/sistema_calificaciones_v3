@@ -2125,12 +2125,12 @@ async function downloadReportPdf() {
         .replace(/[\/\s:*?"<>|]+/g, '_');
 
     const opt = {
-        margin:      [0.6, 1.2, 0.8, 1.2], // cm: top, right, bottom, left (margen superior compacto)
+        margin:      [0.4, 0.8, 0.6, 0.8], // cm: 4mm top, 8mm right, 6mm bottom, 8mm left
         filename,
         image:       { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, logging: false },
         jsPDF:       { unit: 'cm', format: 'a4', orientation: 'portrait' },
-        pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }
+        pagebreak:   { mode: 'css' }
     };
 
     try {
