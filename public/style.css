@@ -1240,13 +1240,22 @@ td.actions-cell {
     }
 }
 
+/* ── @page: quita la URL y fecha que agrega el navegador ── */
+@page {
+    margin: 1.2cm 1.5cm;  /* márgenes propios del documento */
+    /* Al definir @page el navegador elimina sus encabezados/pies automáticos */
+}
+
 @media print {
     body {
         background: white;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
+        margin: 0;
+        padding: 0;
     }
 
+    /* Ocultar toda la UI excepto el reporte */
     .sidebar,
     .topbar,
     .page-header,
@@ -1262,32 +1271,90 @@ td.actions-cell {
         padding: 0;
     }
 
+    /* ── Reporte: compacto para caber en menos hojas ─── */
     .report-sheet {
         border: 0;
         box-shadow: none;
-        padding: 16px 20px;
+        padding: 0;
         border-radius: 0;
+        font-size: 0.82rem;
     }
 
-    .report-stat-card.neutral { background: #f1f5f9 !important; }
-    .report-stat-card.ok      { background: #dcfce7 !important; }
-    .report-stat-card.warn    { background: #fef9c3 !important; }
-    .report-stat-card.info    { background: #dbeafe !important; }
+    /* Membrete más pequeño */
+    .report-letterhead {
+        margin-bottom: 0;
+    }
 
-    .report-table thead tr {
-        background: #111827 !important;
-        color: white !important;
+    .report-logo-img {
+        height: 38px;
+    }
+
+    .report-doc-title {
+        font-size: 0.95rem;
+    }
+
+    .report-doc-sub {
+        font-size: 0.74rem;
+    }
+
+    .report-letterhead-divider {
+        margin: 8px 0 12px;
+        background: linear-gradient(90deg, #2563EB 0%, #00b4d8 60%, transparent 100%) !important;
+    }
+
+    /* Contexto: más compacto */
+    .report-context-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 4px 8px;
+        padding: 8px 12px;
+        margin-bottom: 10px;
+    }
+
+    .report-ctx-label { font-size: 0.6rem; }
+    .report-ctx-value { font-size: 0.78rem; }
+
+    /* Ocultar tarjetas de estadísticas — solo aparecen en pantalla */
+    .report-stats {
+        display: none !important;
+    }
+
+    /* Tabla: más compacta */
+    .report-table {
+        font-size: 0.8rem;
+        margin-bottom: 14px;
+    }
+
+    .report-table thead th {
+        padding: 6px 10px;
+        font-size: 0.7rem;
+    }
+
+    .report-table td {
+        padding: 5px 10px;
     }
 
     .report-table tbody tr:nth-child(even) {
         background: #f8fafc !important;
     }
 
+    .report-table thead tr {
+        background: #111827 !important;
+        color: white !important;
+    }
+
     .status-ok   { background: #dcfce7 !important; color: #15803d !important; }
     .status-warn { background: #fef9c3 !important; color: #a16207 !important; }
 
-    .report-letterhead-divider {
-        background: linear-gradient(90deg, #2563EB 0%, #00b4d8 60%, transparent 100%) !important;
+    /* Pie: compacto */
+    .report-footer {
+        padding-top: 10px;
+        margin-top: 6px;
     }
+
+    .report-signature-line { width: 160px; }
+    .report-sig-name { font-size: 0.8rem; }
+    .report-sig-role { font-size: 0.7rem; }
+    .report-footer-icon { height: 22px; }
+    .report-footer-powered { font-size: 0.65rem; }
 }
 
