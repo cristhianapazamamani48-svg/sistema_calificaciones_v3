@@ -1240,9 +1240,43 @@ td.actions-cell {
     }
 }
 
-/* ── @page: márgenes del documento impreso ── */
+/* ── @page: márgenes del documento impreso (margen superior reducido) ── */
 @page {
-    margin: 1.2cm 1.5cm;
+    margin: 0.6cm 1.2cm 0.8cm 1.2cm;
+}
+
+/* ── Modo exportación PDF directo (html2pdf / html2canvas) ── */
+.report-sheet.pdf-export {
+    margin-top: 0 !important;
+    padding: 8px 16px !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+}
+
+.report-sheet.pdf-export .report-stats {
+    display: none !important;
+}
+
+.report-sheet.pdf-export .report-letterhead {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+.report-sheet.pdf-export .report-letterhead-divider {
+    margin: 8px 0 12px !important;
+}
+
+.report-sheet.pdf-export .report-context-grid {
+    padding: 8px 12px !important;
+    margin-bottom: 10px !important;
+    gap: 4px 8px !important;
+}
+
+.report-sheet.pdf-export .report-table th,
+.report-sheet.pdf-export .report-table td {
+    padding: 6px 8px !important;
+    font-size: 0.82rem !important;
 }
 
 @media print {

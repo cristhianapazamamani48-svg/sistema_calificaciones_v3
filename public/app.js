@@ -541,7 +541,7 @@ function renderSubjects() {
                         <label>Grado <input name="grade_number" type="number" min="1" value="1" required></label>
                         <label>Nombre <input name="name" required></label>
                         <label>Codigo <input name="code"></label>
-                        <label>Nota de aprobacion <input name="passing_score" type="number" min="0" max="100" step="0.01" value="61"></label>
+                        <label>Nota de aprobacion <input name="passing_score" type="number" min="0" max="100" step="1" value="61"></label>
                         <label>Descripcion <textarea name="description" rows="3"></textarea></label>
                         <button class="button primary">Crear materia</button>
                     </form>
@@ -571,7 +571,7 @@ function renderSubjectsTable() {
                         <td><strong>${escapeHtml(subject.name)}</strong><br><span class="stat-note">${escapeHtml(subject.code || 'Sin codigo')}</span></td>
                         <td>${escapeHtml(subject.career_name)}</td>
                         <td>${subject.grade_number}</td>
-                        <td>${subject.passing_score}</td>
+                        <td>${Math.round(Number(subject.passing_score))}</td>
                         <td><button class="button secondary btn-sm btn-edit-subject" data-id="${subject.id}">Editar</button></td>
                     </tr>
                 `).join('')}
@@ -598,7 +598,7 @@ async function editSubject(id) {
             { label: 'Nombre', name: 'name', type: 'text', value: subject.name, required: true },
             { label: 'Codigo', name: 'code', type: 'text', value: subject.code || '' },
             { label: 'Grado', name: 'grade_number', type: 'number', value: subject.grade_number, min: 1 },
-            { label: 'Nota de aprobacion', name: 'passing_score', type: 'number', value: subject.passing_score, min: 0, max: 100, step: 0.01 },
+            { label: 'Nota de aprobacion', name: 'passing_score', type: 'number', value: Math.round(Number(subject.passing_score)), min: 0, max: 100, step: 1 },
             { label: 'Descripcion', name: 'description', type: 'textarea', value: subject.description || '' },
         ],
         onSubmit: async (data) => {
@@ -1442,7 +1442,7 @@ async function refreshEvaluationStructure() {
     window.currentCategories = categories;
 
     const total = categories.reduce((sum, category) => sum + Number(category.weight_percentage), 0);
-    categoryTotal.textContent = `${total.toFixed(2)}%`;
+    categoryTotal.textContent = `${Math.round(total)}%`;
     categoryTotal.className = `badge ${Math.abs(total - 100) < 0.001 ? 'ok' : 'warn'}`;
 
     categorySelect.innerHTML = categories.map((category) => `
@@ -1722,15 +1722,17 @@ function renderGradebookTable(gradebook) {
                             <td><strong>${escapeHtml(student.full_name)}</strong></td>
                             ${evaluations.map((evaluation) => {
                                 const isFirmas = evaluation.category_type === 'firmas';
-                                const stepVal = isFirmas ? '1' : '0.01';
+                                const stepVal = '1';
                                 const placeholder = isFirmas ? 'Firmas' : '0-100';
+                                const rawVal = gradeMap.get(`${student.id}_${evaluation.evaluation_id}`);
+                                const displayVal = (rawVal !== undefined && rawVal !== null && rawVal !== '') ? Math.round(Number(rawVal)) : '';
                                 return `
                                 <td>
-                                    <input class="grade-input" data-grade-input data-student="${student.id}" data-evaluation="${evaluation.evaluation_id}" data-is-firmas="${isFirmas ? '1' : '0'}" type="number" min="0" step="${stepVal}" placeholder="${placeholder}" value="${gradeMap.get(`${student.id}_${evaluation.evaluation_id}`) ?? ''}">
+                                    <input class="grade-input" data-grade-input data-student="${student.id}" data-evaluation="${evaluation.evaluation_id}" data-is-firmas="${isFirmas ? '1' : '0'}" type="number" min="0" step="${stepVal}" placeholder="${placeholder}" value="${displayVal}">
                                 </td>`;
                             }).join('')}
-                            <td><strong data-internal="${student.id}">0.00</strong></td>
-                            <td><strong data-official="${student.id}">0.00</strong></td>
+                            <td><strong data-internal="${student.id}">0</strong></td>
+                            <td><strong data-official="${student.id}">0</strong></td>
                             <td><span data-result="${student.id}" class="badge warn">Pendiente</span></td>
                         </tr>
                     `).join('')}
@@ -1744,7 +1746,8 @@ async function saveGrade(event) {
     const input = event.target;
     const isFirmas = input.dataset.isFirmas === '1';
     const raw = input.value === '' ? 0 : Number(input.value);
-    const score = isFirmas ? Math.round(raw) : raw;
+    const score = Math.round(raw);
+    if (input.value !== '') input.value = score;
     if (!Number.isFinite(score) || score < 0) {
         toast(isFirmas ? 'Las firmas deben ser un numero entero mayor o igual a 0' : 'La nota debe estar entre 0 y 100');
         input.focus();
@@ -1824,17 +1827,18 @@ function recalculateGradeRows() {
             internal += perc * (category.weight / 100);
         });
 
-        const official = internal * (Number(gradebook.context.term_percentage) / 100);
-        const required = Number(gradebook.context.passing_score) * (Number(gradebook.context.term_percentage) / 100);
+        const official = Math.round(internal * (Number(gradebook.context.term_percentage) / 100));
+        const roundedInternal = Math.round(internal);
+        const required = Math.round(Number(gradebook.context.passing_score) * (Number(gradebook.context.term_percentage) / 100));
         const result = official >= required ? 'Aprobado' : 'En riesgo';
 
-        document.querySelector(`[data-internal="${student.id}"]`).textContent = internal.toFixed(2);
-        document.querySelector(`[data-official="${student.id}"]`).textContent = official.toFixed(2);
+        document.querySelector(`[data-internal="${student.id}"]`).textContent = roundedInternal;
+        document.querySelector(`[data-official="${student.id}"]`).textContent = official;
         const resultElement = document.querySelector(`[data-result="${student.id}"]`);
         resultElement.textContent = result;
         resultElement.className = `badge ${result === 'Aprobado' ? 'ok' : 'warn'}`;
 
-        return { student: student.full_name, internal, official, result };
+        return { student: student.full_name, internal: roundedInternal, official, result };
     });
 }
 
@@ -1853,8 +1857,8 @@ function exportGradebookCsv() {
             const input = document.querySelector(`[data-student="${student.id}"][data-evaluation="${evaluation.evaluation_id}"]`);
             return input?.value || '0';
         }),
-        calculated[index].internal.toFixed(2),
-        calculated[index].official.toFixed(2),
+        Math.round(calculated[index].internal),
+        Math.round(calculated[index].official),
         calculated[index].result
     ]);
 
@@ -1973,7 +1977,7 @@ function renderReportSheet(gradebook) {
             </div>
             <div class="report-context-item">
                 <span class="report-ctx-label">Nota mínima</span>
-                <span class="report-ctx-value">${gradebook.context.passing_score}</span>
+                <span class="report-ctx-value">${Math.round(Number(gradebook.context.passing_score))}</span>
             </div>
         </div>
 
@@ -2012,8 +2016,8 @@ function renderReportSheet(gradebook) {
                 <tr class="${row.result === 'Aprobado' ? 'row-ok' : 'row-warn'}">
                     <td>${index + 1}</td>
                     <td><strong>${escapeHtml(row.student)}</strong></td>
-                    <td>${row.internal.toFixed(2)}</td>
-                    <td>${row.official.toFixed(2)}</td>
+                    <td>${Math.round(row.internal)}</td>
+                    <td>${Math.round(row.official)}</td>
                     <td class="status-cell ${row.result === 'Aprobado' ? 'status-ok' : 'status-warn'}">${row.result}</td>
                 </tr>
             `).join('') || '<tr><td colspan="5">No hay estudiantes.</td></tr>'}</tbody>
@@ -2083,9 +2087,10 @@ function calculateReportRows(gradebook) {
             }
             internal += perc * (category.weight / 100);
         });
-        const official = internal * (Number(gradebook.context.term_percentage) / 100);
-        const required = Number(gradebook.context.passing_score) * (Number(gradebook.context.term_percentage) / 100);
-        return { student: student.full_name, internal, official, result: official >= required ? 'Aprobado' : 'En riesgo' };
+        const official = Math.round(internal * (Number(gradebook.context.term_percentage) / 100));
+        const roundedInternal = Math.round(internal);
+        const required = Math.round(Number(gradebook.context.passing_score) * (Number(gradebook.context.term_percentage) / 100));
+        return { student: student.full_name, internal: roundedInternal, official, result: official >= required ? 'Aprobado' : 'En riesgo' };
     });
 }
 
@@ -2099,7 +2104,7 @@ function exportReportCsv() {
     const rows = calculateReportRows(report);
     downloadCsv(`reporte_${report.context.group_code}_${report.context.term_name}.csv`, [
         ['Estudiante', 'Nota 100', 'Nota oficial', 'Estado'],
-        ...rows.map((row) => [row.student, row.internal.toFixed(2), row.official.toFixed(2), row.result])
+        ...rows.map((row) => [row.student, Math.round(row.internal), Math.round(row.official), row.result])
     ]);
 }
 
@@ -2112,41 +2117,97 @@ async function downloadReportPdf() {
 
     const btn = document.getElementById('downloadPdfReport');
     const originalText = btn.textContent;
-    btn.textContent = 'Generando PDF...';
+    btn.textContent = 'Generando vista previa...';
     btn.disabled = true;
 
-    try {
-        const element = document.getElementById('reportBox');
-        const filename = `reporte_${report.context.group_code}_${report.context.term_name}.pdf`
-            .replace(/[\\/\s:*?"<>|]+/g, '_');
+    const element = document.getElementById('reportBox');
+    const filename = `reporte_${report.context.group_code}_${report.context.term_name}.pdf`
+        .replace(/[\/\s:*?"<>|]+/g, '_');
 
-        const opt = {
-            margin:       [1.2, 1.5, 1.2, 1.5], // cm: top, right, bottom, left
-            filename,
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  {
-                scale: 2,
-                useCORS: true,
-                logging: false,
-                removeContainer: true
-            },
-            jsPDF: {
-                unit: 'cm',
-                format: 'a4',
-                orientation: 'portrait'
-            },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    const opt = {
+        margin:      [0.6, 1.2, 0.8, 1.2], // cm: top, right, bottom, left (margen superior compacto)
+        filename,
+        image:       { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF:       { unit: 'cm', format: 'a4', orientation: 'portrait' },
+        pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    try {
+        // Aplicar clase para exportación compacta y sin tarjetas de stats
+        element.classList.add('pdf-export');
+
+        let previewUrl;
+        if (typeof html2canvas === 'function') {
+            const canvas = await html2canvas(element, { scale: 1.8, useCORS: true, logging: false });
+            previewUrl = canvas.toDataURL('image/jpeg', 0.88);
+        } else {
+            const canvas = await html2pdf().set(opt).from(element).toCanvas();
+            previewUrl = canvas.toDataURL('image/jpeg', 0.88);
+        }
+
+        element.classList.remove('pdf-export');
+
+        // Mostrar modal de vista previa antes de descargar
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.cssText = 'z-index: 1000; align-items: center;';
+        overlay.innerHTML = `
+            <div style="background: white; border-radius: 16px; box-shadow: 0 25px 60px rgba(15, 23, 42, 0.35); width: min(720px, 95vw); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; animation: modalIn 0.2s ease;">
+                <div style="padding: 16px 22px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; background: #ffffff;">
+                    <div>
+                        <strong style="font-size: 1.05rem; color: #0f172a; display: block;">Vista previa del PDF</strong>
+                        <span style="font-size: 0.78rem; color: #64748b;">Revisa el diseño antes de guardar el archivo</span>
+                    </div>
+                    <button id="closePdfPreview" style="width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background: transparent; cursor: pointer; font-size: 1.3rem; line-height: 1; display: grid; place-items: center; color: #64748b;">&times;</button>
+                </div>
+                <div style="overflow-y: auto; padding: 20px; background: #0f172a08; flex: 1; display: flex; justify-content: center; align-items: flex-start;">
+                    <div style="background: white; padding: 6px; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); max-width: 100%;">
+                        <img src="${previewUrl}" alt="Vista previa del PDF" style="display: block; width: 100%; height: auto; border-radius: 3px;">
+                    </div>
+                </div>
+                <div style="padding: 14px 22px; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; background: #ffffff;">
+                    <button id="cancelPdfDownload" class="button secondary">Cancelar</button>
+                    <button id="confirmPdfDownload" class="button primary" style="display: inline-flex; align-items: center; gap: 6px;">
+                        <span>⬇</span> Descargar PDF
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const closeModal = () => {
+            if (document.body.contains(overlay)) {
+                document.body.removeChild(overlay);
+            }
         };
 
-        await html2pdf().set(opt).from(element).save();
-        toast('PDF descargado correctamente');
+        document.getElementById('closePdfPreview').addEventListener('click', closeModal);
+        document.getElementById('cancelPdfDownload').addEventListener('click', closeModal);
+        document.getElementById('confirmPdfDownload').addEventListener('click', async () => {
+            const confirmBtn = document.getElementById('confirmPdfDownload');
+            confirmBtn.textContent = 'Descargando...';
+            confirmBtn.disabled = true;
+            try {
+                element.classList.add('pdf-export');
+                await html2pdf().set(opt).from(element).save();
+                toast('PDF descargado correctamente');
+            } catch (err) {
+                toast('Error al descargar: ' + err.message);
+            } finally {
+                element.classList.remove('pdf-export');
+                closeModal();
+            }
+        });
     } catch (error) {
-        toast('Error al generar el PDF: ' + error.message);
+        element.classList.remove('pdf-export');
+        toast('Error al generar la vista previa: ' + error.message);
     } finally {
         btn.textContent = originalText;
         btn.disabled = false;
     }
 }
+
 
 function downloadCsv(filename, rows) {
     const cleanName = filename.replace(/[\\/:*?"<>|]+/g, '_');

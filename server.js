@@ -334,7 +334,7 @@ app.post('/api/subjects', async (req, res) => {
         connection = await pool.getConnection();
         const [result] = await connection.query(
             'INSERT INTO subjects (career_id, name, code, description, passing_score, grade_number) VALUES (?, ?, ?, ?, ?, ?)',
-            [careerId, name.trim(), code || null, description || null, Number.parseFloat(passing_score) || 61, gradeNumber]
+            [careerId, name.trim(), code || null, description || null, Math.round(Number.parseFloat(passing_score)) || 61, gradeNumber]
         );
         res.status(201).json({ id: result.insertId, message: 'Materia creada' });
     } catch (error) {
@@ -360,7 +360,7 @@ app.put('/api/subjects/:id', async (req, res) => {
         connection = await pool.getConnection();
         const [result] = await connection.query(
             'UPDATE subjects SET name = ?, code = ?, description = ?, passing_score = ?, grade_number = ? WHERE id = ?',
-            [name.trim(), code || null, description || null, Number.parseFloat(passing_score) || 61, gradeNumber, id]
+            [name.trim(), code || null, description || null, Math.round(Number.parseFloat(passing_score)) || 61, gradeNumber, id]
         );
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Materia no encontrada' });
         res.json({ message: 'Materia actualizada' });
@@ -952,7 +952,7 @@ app.get('/api/gradebook', async (req, res) => {
         `, [assignmentId, termId]);
 
         const [grades] = await connection.query(`
-            SELECT g.student_id, g.evaluation_id, g.score
+            SELECT g.student_id, g.evaluation_id, ROUND(g.score) AS score
             FROM grades g
             JOIN evaluations e ON g.evaluation_id = e.id
             JOIN evaluation_categories ec ON e.category_id = ec.id
@@ -1006,7 +1006,7 @@ app.post('/api/grades', async (req, res) => {
             if (!Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > 100) {
                 return res.status(400).json({ error: 'La nota debe estar entre 0 y 100' });
             }
-            scoreToSave = parsedScore;
+            scoreToSave = Math.round(parsedScore);
         }
 
         await connection.query(`
@@ -1537,15 +1537,16 @@ app.get('/api/students/:id/kardex', async (req, res) => {
                     });
 
                     const termOfficialScore = termInternalScore * (Number(term.term_percentage) / 100);
-                    termGrades[term.term_id] = Number(termOfficialScore.toFixed(2));
+                    termGrades[term.term_id] = Math.round(termOfficialScore);
                 });
 
                 // Calcular nota final (suma de las notas oficiales de todos los parciales)
-                const finalScore = Object.values(termGrades).reduce((sum, score) => sum + score, 0);
+                const finalScore = Math.round(Object.values(termGrades).reduce((sum, score) => sum + score, 0));
 
                 // Determinar el estado de la materia
                 let subjectStatus = 'Reprobado';
-                if (finalScore >= Number(subject.passing_score)) {
+                const passingScore = Math.round(Number(subject.passing_score));
+                if (finalScore >= passingScore) {
                     subjectStatus = 'Aprobado';
                 } else if (hasIncompleteTerms && enrollment.enrollment_status === 'activo') {
                     subjectStatus = 'Cursando';
@@ -1556,9 +1557,9 @@ app.get('/api/students/:id/kardex', async (req, res) => {
                     name: subject.subject_name,
                     code: subject.subject_code,
                     grade_number: subject.grade_number,
-                    passing_score: Number(subject.passing_score),
+                    passing_score: passingScore,
                     term_grades: termGrades,
-                    final_score: Number(finalScore.toFixed(2)),
+                    final_score: finalScore,
                     status: subjectStatus
                 };
             });
