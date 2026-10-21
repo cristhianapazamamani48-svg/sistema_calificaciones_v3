@@ -142,19 +142,14 @@ function renderLogin() {
     app.innerHTML = `
         <main class="login-page">
             <section class="login-brand">
-                <div class="brand">
-                    <div class="brand-mark">V3</div>
-                    <div>
-                        <strong>Sistema de Calificaciones</strong>
-                        <span>Gestion academica docente</span>
-                    </div>
+                <div class="login-brand-logo">
+                    <img src="/assets/branding/logo_primario.svg" alt="ChrisCode" class="login-logo-img">
                 </div>
-                <div>
-                    <p class="eyebrow">Version 3</p>
-                    <h1>Una base nueva para administrar sedes, carreras, grupos, evaluaciones y notas.</h1>
-                    <p>Esta version esta pensada para crecer con reglas academicas reales: carreras por sede, materias por grado, grupos que heredan materias y reportes historicos.</p>
+                <div class="login-brand-text">
+                    <p class="eyebrow">Herramienta de gestión docente</p>
+                    <h1>Sistema de Calificaciones</h1>
+                    <p>Administra sedes, carreras, grupos, evaluaciones y reportes. Diseñado y desarrollado por <strong>ChrisCode</strong>.</p>
                 </div>
-                <p>Puerto sugerido para servidor local: 7002</p>
             </section>
             <section class="login-card-wrap">
                 <form id="loginForm" class="login-card">
@@ -221,11 +216,11 @@ function renderShell() {
         <div class="app-shell">
             <aside class="sidebar">
                 <div>
-                    <div class="brand">
-                        <div class="brand-mark">V3</div>
+                    <div class="sidebar-brand">
+                        <img src="/assets/branding/logo_simplificado.svg" alt="ChrisCode" class="sidebar-logo-icon">
                         <div>
-                            <strong>Calificaciones</strong>
-                            <span>Infocal / Gestion docente</span>
+                            <strong>ChrisCode</strong>
+                            <span>Gestión docente</span>
                         </div>
                     </div>
                     <div class="nav-section-title">Modulos</div>
@@ -251,7 +246,7 @@ function renderShell() {
                 <header class="topbar">
                     <div>
                         <h1>${pageTitle()}</h1>
-                        <small>Gestion activa: 2026 | Base V3</small>
+                        <small>Cristhian Apaza Mamani · Docente</small>
                     </div>
                     <div class="user-pill">
                         <span class="user-avatar">${escapeHtml((state.user?.full_name || 'U').slice(0, 1))}</span>
